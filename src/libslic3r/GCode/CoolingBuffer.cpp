@@ -1281,6 +1281,7 @@ std::string CoolingBuffer::apply_layer_cooldown(
         }
 
         if (line->type & CoolingLine::TYPE_SET_TOOL) {
+            new_gcode.append(line_start, line_end - line_start);
             const std::string_view toolchange_line = lstrip_view(std::string_view(line_start, line_end - line_start));
 
             unsigned int new_extruder = 0;
@@ -1289,7 +1290,6 @@ std::string CoolingBuffer::apply_layer_cooldown(
                 m_current_extruder = new_extruder;
                 change_extruder_set_fan();
             }
-            new_gcode.append(line_start, line_end - line_start);
         } else if (line->type & CoolingLine::TYPE_SET_FAN_SPEED) {
             change_extruder_set_fan(line->fan_speed);
         } else if (line->type & CoolingLine::TYPE_RESET_FAN_SPEED){
