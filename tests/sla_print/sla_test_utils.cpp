@@ -5,6 +5,7 @@
 #include "libslic3r/SLA/BranchingTreeSLA.hpp"
 
 #include <iomanip>
+#include <catch2/interfaces/catch_interfaces_capture.hpp>
 
 void test_support_model_collision(
     const std::string            &obj_filename,
