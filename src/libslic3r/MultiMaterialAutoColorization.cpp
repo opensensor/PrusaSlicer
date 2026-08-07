@@ -132,7 +132,7 @@ int assign_color_from_distribution(float normalized_value, const std::vector<int
 
     // Find the appropriate color based on the normalized value
     for (size_t i = 0; i < cumulative_dist.size(); ++i) {
-        if (normalized_value <= cumulative_dist[i] && extruders[i] > 0)
+        if (normalized_value < cumulative_dist[i] && extruders[i] > 0)
             return extruders[i];
     }
 
