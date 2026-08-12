@@ -1,0 +1,92 @@
+name: Community CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - master
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: community-ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  linux-build-and-test:
+    name: Linux build and tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install build prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends \
+            autoconf \
+            build-essential \
+            cmake \
+            desktop-file-utils \
+            git \
+            libdbus-1-dev \
+            libglu1-mesa-dev \
+            libgtk-3-dev \
+            libhidapi-dev \
+            libwebkit2gtk-4.1-dev \
+            libwebp-dev \
+            ninja-build \
+            texinfo
+
+      - name: Record toolchain version
+        id: toolchain
+        run: echo "gcc=$(c++ -dumpfullversion -dumpversion)" >> "$GITHUB_OUTPUT"
+
+      - name: Restore compiled dependencies
+        id: dependency-cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: deps/build/destdir
+          key: prusaslicer-deps-${{ runner.os }}-${{ runner.arch }}-gcc-${{ steps.toolchain.outputs.gcc }}-${{ hashFiles('deps/**') }}
+
+      - name: Configure dependencies
+        if: steps.dependency-cache.outputs.cache-hit != 'true'
+        run: >-
+          cmake -S deps -B deps/build -G Ninja
+          -DDEP_WX_GTK3=ON
+          -DCMAKE_POLICY_VERSION_MINIMUM=3.5
+
+      - name: Build dependencies
+        if: steps.dependency-cache.outputs.cache-hit != 'true'
+        run: cmake --build deps/build --parallel 2
+
+      - name: Configure PrusaSlicer
+        run: >-
+          cmake -S . -B build -G Ninja
+          -DSLIC3R_STATIC=ON
+          -DSLIC3R_GTK=3
+          -DSLIC3R_PCH=OFF
+          -DSLIC3R_GUI=ON
+          -DCMAKE_POLICY_VERSION_MINIMUM=3.5
+          -DCMAKE_PREFIX_PATH="$GITHUB_WORKSPACE/deps/build/destdir/usr/local"
+
+      - name: Build test suites and GUI library
+        run: >-
+          cmake --build build
+          --target libslic3r_tests fff_print_tests sla_print_tests libslic3r_gui
+          --parallel 2
+
+      - name: Run test suites
+        run: |
+          build/tests/libslic3r/libslic3r_tests
+          build/tests/fff_print/fff_print_tests
+          build/tests/sla_print/sla_print_tests
+
+      - name: Validate desktop entries
+        run: |
+          desktop-file-validate src/platform/unix/PrusaSlicer.desktop
+          desktop-file-validate src/platform/unix/PrusaGcodeviewer.desktop
