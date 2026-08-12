@@ -1,0 +1,438 @@
+name: Community release build
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Branch, tag, or commit to build without creating a release
+        required: true
+        default: master
+        type: string
+  push:
+    tags:
+      - 'community-v*'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: community-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  metadata:
+    name: Resolve release metadata
+    runs-on: ubuntu-24.04
+    outputs:
+      source_ref: ${{ steps.metadata.outputs.source_ref }}
+      source_sha: ${{ steps.metadata.outputs.source_sha }}
+      asset_version: ${{ steps.metadata.outputs.asset_version }}
+      build_id: ${{ steps.metadata.outputs.build_id }}
+      package_prefix: ${{ steps.metadata.outputs.package_prefix }}
+      release_tag: ${{ steps.metadata.outputs.release_tag }}
+      prerelease: ${{ steps.metadata.outputs.prerelease }}
+    steps:
+      - name: Check out release source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.ref || github.ref }}
+          fetch-depth: 0
+
+      - name: Validate tag and generate names
+        id: metadata
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REQUESTED_REF: ${{ inputs.ref }}
+          REF_NAME: ${{ github.ref_name }}
+          RUN_NUMBER: ${{ github.run_number }}
+        run: |
+          set -euo pipefail
+
+          source_version=$(sed -n 's/^set(SLIC3R_VERSION "\([^"]*\)")/\1/p' version.inc)
+          if [[ -z "$source_version" ]]; then
+            echo "Unable to read SLIC3R_VERSION from version.inc" >&2
+            exit 1
+          fi
+
+          source_sha=$(git rev-parse HEAD)
+          short_sha=$(git rev-parse --short=9 HEAD)
+          release_tag=""
+          prerelease="false"
+
+          if [[ "$EVENT_NAME" == "push" ]]; then
+            release_tag="$REF_NAME"
+            if [[ ! "$release_tag" =~ ^community-v([0-9]+\.[0-9]+\.[0-9]+)\.([0-9]+)(-rc[0-9]+)?$ ]]; then
+              echo "Unsupported release tag: $release_tag" >&2
+              exit 1
+            fi
+            if [[ "${BASH_REMATCH[1]}" != "$source_version" ]]; then
+              echo "Tag base ${BASH_REMATCH[1]} does not match source version $source_version" >&2
+              exit 1
+            fi
+
+            sequence=${BASH_REMATCH[2]}
+            suffix=${BASH_REMATCH[3]}
+            asset_version="${source_version}.${sequence}${suffix}"
+            build_id="PrusaSlicer-${source_version}+opensensor.${sequence}"
+            if [[ -n "$suffix" ]]; then
+              build_id="${build_id}.${suffix#-}"
+              prerelease="true"
+            fi
+            source_ref="$release_tag"
+          else
+            asset_version="${source_version}.dev.${RUN_NUMBER}.${short_sha}"
+            build_id="PrusaSlicer-${source_version}+opensensor.dev.${RUN_NUMBER}.${short_sha}"
+            source_ref="$REQUESTED_REF"
+          fi
+
+          {
+            echo "source_ref=$source_ref"
+            echo "source_sha=$source_sha"
+            echo "asset_version=$asset_version"
+            echo "build_id=$build_id"
+            echo "package_prefix=PrusaSlicer-Community-$asset_version"
+            echo "release_tag=$release_tag"
+            echo "prerelease=$prerelease"
+          } >> "$GITHUB_OUTPUT"
+
+          printf '%s\n' \
+            "Source: $source_sha" \
+            "Version: $asset_version" \
+            "Build ID: $build_id" \
+            "Release tag: ${release_tag:-none (artifact-only build)}"
+
+  linux:
+    name: Linux x64 portable bundle
+    needs: metadata
+    runs-on: ubuntu-24.04
+    timeout-minutes: 300
+    steps:
+      - name: Check out release source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.metadata.outputs.source_sha }}
+
+      - name: Install build prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends \
+            autoconf \
+            build-essential \
+            cmake \
+            git \
+            libdbus-1-dev \
+            libglu1-mesa-dev \
+            libgtk-3-dev \
+            libhidapi-dev \
+            libtool \
+            libwebkit2gtk-4.1-dev \
+            libwebp-dev \
+            ninja-build \
+            texinfo
+
+      - name: Record toolchain version
+        id: toolchain
+        run: echo "gcc=$(c++ -dumpfullversion -dumpversion)" >> "$GITHUB_OUTPUT"
+
+      - name: Restore compiled dependencies
+        id: dependency-cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: deps/build/destdir
+          key: release-deps-linux-x64-gcc-${{ steps.toolchain.outputs.gcc }}-${{ hashFiles('deps/**') }}
+
+      - name: Build dependencies
+        if: steps.dependency-cache.outputs.cache-hit != 'true'
+        run: |
+          cmake -S deps -B deps/build -G Ninja \
+            -DDEP_WX_GTK3=ON \
+            -DCMAKE_POLICY_VERSION_MINIMUM=3.5
+          cmake --build deps/build --parallel 2
+
+      - name: Configure PrusaSlicer
+        run: |
+          cmake -S . -B build -G Ninja \
+            -DSLIC3R_BUILD_ID="${{ needs.metadata.outputs.build_id }}" \
+            -DSLIC3R_STATIC=ON \
+            -DSLIC3R_GTK=3 \
+            -DSLIC3R_PCH=OFF \
+            -DSLIC3R_BUILD_TESTS=ON \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+            -DCMAKE_PREFIX_PATH="$GITHUB_WORKSPACE/deps/build/destdir/usr/local"
+
+      - name: Build application and MMU tests
+        run: >-
+          cmake --build build
+          --target PrusaSlicer libslic3r_tests
+          --parallel 2
+
+      - name: Run MMU auto-colorization tests
+        run: build/tests/libslic3r/libslic3r_tests '[MMUAutoColorization]'
+
+      - name: Assemble portable bundle
+        env:
+          PACKAGE: ${{ needs.metadata.outputs.package_prefix }}-linux-ubuntu-24.04-x64
+        run: |
+          set -euo pipefail
+          mkdir -p stage dist
+          cmake --install build --prefix "$GITHUB_WORKSPACE/stage/$PACKAGE"
+          test -x "stage/$PACKAGE/bin/prusa-slicer"
+          test -L "stage/$PACKAGE/bin/prusa-gcodeviewer"
+          test -d "stage/$PACKAGE/resources"
+          "stage/$PACKAGE/bin/prusa-slicer" --version
+          if ldd "stage/$PACKAGE/bin/prusa-slicer" | grep -q 'not found'; then
+            ldd "stage/$PACKAGE/bin/prusa-slicer"
+            exit 1
+          fi
+          tar -C stage -czf "dist/$PACKAGE.tar.gz" "$PACKAGE"
+          tar -tzf "dist/$PACKAGE.tar.gz" >/dev/null
+
+      - name: Upload Linux bundle
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-linux-x64
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 14
+
+  windows:
+    name: Windows x64 portable bundle
+    needs: metadata
+    runs-on: windows-2022
+    timeout-minutes: 300
+    steps:
+      - name: Check out release source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.metadata.outputs.source_sha }}
+
+      - name: Restore compiled dependencies
+        id: dependency-cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: deps/build/destdir
+          key: release-deps-windows-x64-msvc2022-${{ hashFiles('deps/**') }}
+
+      - name: Build dependencies
+        if: steps.dependency-cache.outputs.cache-hit != 'true'
+        shell: pwsh
+        run: |
+          cmake -S deps -B deps/build -A x64 `
+            -DDEP_DEBUG=OFF `
+            -DCMAKE_POLICY_VERSION_MINIMUM=3.5
+          cmake --build deps/build --config Release --parallel 2
+
+      - name: Configure PrusaSlicer
+        shell: pwsh
+        run: |
+          cmake -S . -B build -A x64 `
+            -DSLIC3R_BUILD_ID="${{ needs.metadata.outputs.build_id }}" `
+            -DSLIC3R_STATIC=ON `
+            -DSLIC3R_PCH=OFF `
+            -DSLIC3R_BUILD_TESTS=ON `
+            -DCMAKE_POLICY_VERSION_MINIMUM=3.5 `
+            -DCMAKE_PREFIX_PATH="$env:GITHUB_WORKSPACE/deps/build/destdir/usr/local"
+
+      - name: Build application and MMU tests
+        shell: pwsh
+        run: |
+          cmake --build build --config Release `
+            --target PrusaSlicer_app_gui PrusaSlicer_app_console PrusaSlicer_app_gcodeviewer libslic3r_tests `
+            --parallel 2
+
+      - name: Run MMU auto-colorization tests
+        shell: pwsh
+        run: |
+          $test = Get-ChildItem build/tests/libslic3r -Recurse -Filter libslic3r_tests.exe | Select-Object -First 1
+          if (-not $test) { throw "libslic3r_tests.exe was not produced" }
+          & $test.FullName '[MMUAutoColorization]'
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Assemble portable bundle
+        shell: pwsh
+        env:
+          PACKAGE: ${{ needs.metadata.outputs.package_prefix }}-windows-x64
+        run: |
+          $source = 'build/src/Release'
+          $packageRoot = Join-Path 'stage' $env:PACKAGE
+          New-Item -ItemType Directory -Force -Path $packageRoot, dist | Out-Null
+          Get-ChildItem $source -File | Where-Object { $_.Extension -in '.exe', '.dll' } | Copy-Item -Destination $packageRoot
+          Copy-Item resources (Join-Path $packageRoot 'resources') -Recurse
+
+          $required = @('prusa-slicer.exe', 'prusa-slicer-console.exe', 'prusa-gcodeviewer.exe', 'PrusaSlicer.dll', 'libgmp-10.dll', 'libmpfr-4.dll', 'WebView2Loader.dll')
+          foreach ($file in $required) {
+            if (-not (Test-Path (Join-Path $packageRoot $file))) { throw "Missing release file: $file" }
+          }
+          & (Join-Path $packageRoot 'prusa-slicer-console.exe') --version
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+          Compress-Archive -Path $packageRoot -DestinationPath (Join-Path dist "$env:PACKAGE.zip") -CompressionLevel Optimal
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $zip = [IO.Compression.ZipFile]::OpenRead((Resolve-Path (Join-Path dist "$env:PACKAGE.zip")))
+          try {
+            if ($zip.Entries.Count -lt 10) { throw 'Release archive is unexpectedly empty' }
+          } finally {
+            $zip.Dispose()
+          }
+
+      - name: Upload Windows bundle
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-windows-x64
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 14
+
+  macos:
+    name: macOS Intel disk image
+    needs: metadata
+    runs-on: macos-15-intel
+    timeout-minutes: 300
+    steps:
+      - name: Check out release source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.metadata.outputs.source_sha }}
+
+      - name: Install build prerequisites
+        run: brew install automake cmake gettext libtool m4 ninja texinfo zlib
+
+      - name: Record toolchain version
+        id: toolchain
+        run: echo "clang=$(clang++ -dumpversion)" >> "$GITHUB_OUTPUT"
+
+      - name: Restore compiled dependencies
+        id: dependency-cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: deps/build/destdir
+          key: release-deps-macos-intel-clang-${{ steps.toolchain.outputs.clang }}-${{ hashFiles('deps/**') }}
+
+      - name: Build dependencies
+        if: steps.dependency-cache.outputs.cache-hit != 'true'
+        run: |
+          cmake -S deps -B deps/build -G Ninja \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=13.0 \
+            -DCMAKE_POLICY_VERSION_MINIMUM=3.5
+          cmake --build deps/build --parallel 2
+
+      - name: Configure PrusaSlicer
+        run: |
+          cmake -S . -B build -G Ninja \
+            -DSLIC3R_BUILD_ID="${{ needs.metadata.outputs.build_id }}" \
+            -DSLIC3R_STATIC=ON \
+            -DSLIC3R_PCH=OFF \
+            -DSLIC3R_BUILD_TESTS=ON \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=13.0 \
+            -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+            -DCMAKE_PREFIX_PATH="$GITHUB_WORKSPACE/deps/build/destdir/usr/local"
+
+      - name: Build application and MMU tests
+        run: >-
+          cmake --build build
+          --target PrusaSlicer libslic3r_tests
+          --parallel 2
+
+      - name: Run MMU auto-colorization tests
+        run: build/tests/libslic3r/libslic3r_tests '[MMUAutoColorization]'
+
+      - name: Assemble application and disk image
+        env:
+          PACKAGE: ${{ needs.metadata.outputs.package_prefix }}-macos-13-intel
+        run: |
+          set -euo pipefail
+          app="stage/PrusaSlicer.app"
+          mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources" dist
+          cp build/src/PrusaSlicer "$app/Contents/MacOS/PrusaSlicer"
+          ln -s PrusaSlicer "$app/Contents/MacOS/prusa-slicer"
+          ln -s PrusaSlicer "$app/Contents/MacOS/prusa-gcodeviewer"
+          cp build/src/Info.plist "$app/Contents/Info.plist"
+          cp -R resources/. "$app/Contents/Resources/"
+          cp resources/icons/PrusaSlicer.icns resources/icons/gcode.icns resources/icons/stl.icns "$app/Contents/Resources/"
+
+          plutil -lint "$app/Contents/Info.plist"
+          "$app/Contents/MacOS/PrusaSlicer" --version
+          if otool -L "$app/Contents/MacOS/PrusaSlicer" | grep -E "$GITHUB_WORKSPACE|/usr/local/(Cellar|opt)"; then
+            echo 'Application contains a non-system absolute library reference' >&2
+            exit 1
+          fi
+
+          # Ad-hoc signing verifies bundle integrity. Public notarization can be
+          # enabled later when the community has an Apple Developer identity.
+          codesign --force --deep --sign - "$app"
+          codesign --verify --deep --strict --verbose=2 "$app"
+          hdiutil create -volname "PrusaSlicer Community" -srcfolder "$app" -ov -format UDZO "dist/$PACKAGE.dmg"
+          hdiutil verify "dist/$PACKAGE.dmg"
+
+      - name: Upload macOS disk image
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-macos-intel
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 14
+
+  draft-release:
+    name: Create draft GitHub release
+    if: github.event_name == 'push'
+    needs: [metadata, linux, windows, macos]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - name: Download native bundles
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: release-*
+          path: release-assets
+          merge-multiple: true
+
+      - name: Validate assets and generate checksums
+        env:
+          PREFIX: ${{ needs.metadata.outputs.package_prefix }}
+        run: |
+          set -euo pipefail
+          test "$(find release-assets -maxdepth 1 -type f -name '*.tar.gz' | wc -l)" -eq 1
+          test "$(find release-assets -maxdepth 1 -type f -name '*.zip' | wc -l)" -eq 1
+          test "$(find release-assets -maxdepth 1 -type f -name '*.dmg' | wc -l)" -eq 1
+          find release-assets -maxdepth 1 -type f -name "$PREFIX-*" -print | sort
+          (cd release-assets && sha256sum "$PREFIX"-* > SHA256SUMS.txt && sha256sum --check SHA256SUMS.txt)
+
+      - name: Create or refresh draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.metadata.outputs.release_tag }}
+          VERSION: ${{ needs.metadata.outputs.asset_version }}
+          PRERELEASE: ${{ needs.metadata.outputs.prerelease }}
+        run: |
+          set -euo pipefail
+          notes=$(cat <<'EOF'
+          > **Community fork build — not an official Prusa Research release**
+          >
+          > These binaries are produced from `opensensor/PrusaSlicer`, include the
+          > community MMU auto-colorization work, and are currently unsigned on
+          > Windows/Linux and ad-hoc signed (not notarized) on macOS. Verify the
+          > files with `SHA256SUMS.txt` before installation.
+
+          This release remains a draft until a maintainer runs the checksum-verifying
+          **Publish community release** workflow.
+          EOF
+          )
+
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            is_draft=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$TAG" --jq .draft)
+            if [[ "$is_draft" != "true" ]]; then
+              echo "Refusing to replace assets on an already-published release" >&2
+              exit 1
+            fi
+            gh release upload "$TAG" release-assets/* --clobber
+          else
+            args=(--verify-tag --draft --title "PrusaSlicer Community $VERSION" --generate-notes --notes "$notes")
+            if [[ "$PRERELEASE" == "true" ]]; then
+              args+=(--prerelease)
+            fi
+            gh release create "$TAG" release-assets/* "${args[@]}"
+          fi

@@ -3,8 +3,16 @@
 
 # PrusaSlicer
 
-You may want to check the [PrusaSlicer project page](https://www.prusa3d.com/prusaslicer/).
-Prebuilt Windows, OSX and Linux binaries are available through the [git releases page](https://github.com/prusa3d/PrusaSlicer/releases) or from the [Prusa3D downloads page](https://www.prusa3d.com/drivers/). There are also [3rd party Linux builds available](https://github.com/prusa3d/PrusaSlicer/wiki/PrusaSlicer-on-Linux---binary-distributions).
+> **Community fork:** `opensensor/PrusaSlicer` maintains the existing AGPL
+> code line independently of Prusa Research. Community binaries are not
+> official Prusa releases or endorsements. See the
+> [community release process](doc/Community%20releases.md) for supported
+> platforms, tag conventions, validation, and signing status.
+
+Community-built Windows, macOS, and Linux binaries are available from the
+[`opensensor/PrusaSlicer` releases page](https://github.com/opensensor/PrusaSlicer/releases).
+Official Prusa binaries remain available from
+[Prusa Research](https://www.prusa3d.com/drivers/).
 
 PrusaSlicer takes 3D models (STL, OBJ, AMF) and converts them into G-code
 instructions for FFF printers or PNG layers for mSLA 3D printers. It's

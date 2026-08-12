@@ -1,0 +1,76 @@
+name: Publish community release
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing draft tag, for example community-v2.9.6.1
+        required: true
+        type: string
+      mark_latest:
+        description: Mark a stable release as latest
+        required: true
+        default: true
+        type: boolean
+
+permissions:
+  contents: write
+
+concurrency:
+  group: publish-community-release-${{ inputs.tag }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Verify and publish draft
+    runs-on: ubuntu-24.04
+    environment: community-release
+    steps:
+      - name: Validate requested tag
+        env:
+          TAG: ${{ inputs.tag }}
+        run: |
+          if [[ ! "$TAG" =~ ^community-v[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+(-rc[0-9]+)?$ ]]; then
+            echo "Unsupported community release tag: $TAG" >&2
+            exit 1
+          fi
+
+      - name: Download and verify draft assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          is_draft=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$TAG" --jq .draft)
+          if [[ "$is_draft" != "true" ]]; then
+            echo "Release $TAG is not a draft" >&2
+            exit 1
+          fi
+
+          mkdir release-assets
+          gh release download "$TAG" --dir release-assets
+          test "$(find release-assets -maxdepth 1 -type f -name '*.tar.gz' | wc -l)" -eq 1
+          test "$(find release-assets -maxdepth 1 -type f -name '*.zip' | wc -l)" -eq 1
+          test "$(find release-assets -maxdepth 1 -type f -name '*.dmg' | wc -l)" -eq 1
+          test -f release-assets/SHA256SUMS.txt
+          (cd release-assets && sha256sum --check SHA256SUMS.txt)
+          unzip -tq release-assets/*.zip
+          tar -tzf release-assets/*.tar.gz >/dev/null
+
+      - name: Publish verified release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag }}
+          MARK_LATEST: ${{ inputs.mark_latest }}
+        run: |
+          set -euo pipefail
+          args=(--draft=false)
+          if [[ "$TAG" == *-rc* ]]; then
+            args+=(--prerelease --latest=false)
+          elif [[ "$MARK_LATEST" == "true" ]]; then
+            args+=(--latest)
+          else
+            args+=(--latest=false)
+          fi
+          gh release edit "$TAG" "${args[@]}"
+
