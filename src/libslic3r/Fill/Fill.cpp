@@ -420,7 +420,7 @@ static void insert_fills_into_islands(Layer &layer, uint32_t fill_region_id, uin
 	    			const BoundingBoxes &bboxes     = li.fill_expolygons_composite() ?
 	    				layer.get_region(li.perimeters.region())->fill_expolygons_composite_bboxes() :
 	    				layer.get_region(li.fill_region_id)->fill_expolygons_bboxes();
-	    			const ExPolygons 	&expolygons = li.fill_expolygons_composite() ?
+				const ExPolygons &expolygons = li.fill_expolygons_composite() ?
 	    				layer.get_region(li.perimeters.region())->fill_expolygons_composite() :
 	    				layer.get_region(li.fill_region_id)->fill_expolygons();
 	    			for (uint32_t fill_expolygon_id : li.fill_expolygons)
@@ -833,9 +833,9 @@ void Layer::make_ironing()
 			const PrintRegionConfig &config = layerm->region().config();
 			if (config.ironing &&
 				(config.ironing_type == IroningType::AllSolid ||
-				 	(config.top_solid_layers > 0 &&
+					(config.top_solid_layers > 0 &&
 						(config.ironing_type == IroningType::TopSurfaces ||
-					 	(config.ironing_type == IroningType::TopmostOnly && layerm->layer()->upper_layer == nullptr))))) {
+						(config.ironing_type == IroningType::TopmostOnly && layerm->layer()->upper_layer == nullptr))))) {
 				if (config.perimeter_extruder == config.solid_infill_extruder || config.perimeters == 0) {
 					// Iron the whole face.
 					ironing_params.extruder = config.solid_infill_extruder;
