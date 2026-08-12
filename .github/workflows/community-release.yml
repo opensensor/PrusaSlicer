@@ -181,7 +181,8 @@ jobs:
           test -x "stage/$PACKAGE/bin/prusa-slicer"
           test -L "stage/$PACKAGE/bin/prusa-gcodeviewer"
           test -d "stage/$PACKAGE/resources"
-          "stage/$PACKAGE/bin/prusa-slicer" --version
+          version_banner=$("stage/$PACKAGE/bin/prusa-slicer" --help 2>&1)
+          grep -Fq '${{ needs.metadata.outputs.build_id }}' <<< "$version_banner"
           if ldd "stage/$PACKAGE/bin/prusa-slicer" | grep -q 'not found'; then
             ldd "stage/$PACKAGE/bin/prusa-slicer"
             exit 1
@@ -265,8 +266,10 @@ jobs:
           foreach ($file in $required) {
             if (-not (Test-Path (Join-Path $packageRoot $file))) { throw "Missing release file: $file" }
           }
-          & (Join-Path $packageRoot 'prusa-slicer-console.exe') --version
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $versionBanner = (& (Join-Path $packageRoot 'prusa-slicer-console.exe') --help 2>&1) -join "`n"
+          if ($LASTEXITCODE -ne 0 -or -not $versionBanner.Contains('${{ needs.metadata.outputs.build_id }}')) {
+            throw 'The packaged console executable did not report the expected community build ID.'
+          }
 
           Compress-Archive -Path $packageRoot -DestinationPath (Join-Path dist "$env:PACKAGE.zip") -CompressionLevel Optimal
           Add-Type -AssemblyName System.IO.Compression.FileSystem
@@ -354,7 +357,8 @@ jobs:
           cp resources/icons/PrusaSlicer.icns resources/icons/gcode.icns resources/icons/stl.icns "$app/Contents/Resources/"
 
           plutil -lint "$app/Contents/Info.plist"
-          "$app/Contents/MacOS/PrusaSlicer" --version
+          version_banner=$("$app/Contents/MacOS/PrusaSlicer" --help 2>&1)
+          grep -Fq '${{ needs.metadata.outputs.build_id }}' <<< "$version_banner"
           if otool -L "$app/Contents/MacOS/PrusaSlicer" | grep -E "$GITHUB_WORKSPACE|/usr/local/(Cellar|opt)"; then
             echo 'Application contains a non-system absolute library reference' >&2
             exit 1
