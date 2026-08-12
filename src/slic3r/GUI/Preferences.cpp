@@ -645,8 +645,8 @@ void PreferencesDialog::build()
 			app_config->get_bool("downloader_url_registered"));
 
 		append_bool_option(m_optgroup_other, "show_printables_button",
-			L("Show \"Printables\" button in application top bar"),
-			L("If enabled, PrusaSlicer will show the \"Printables\" button in application top bar."),
+			L("Show \"Printables\" tab in application top bar"),
+			L("If enabled, PrusaSlicer will show the \"Printables\" tab in the application top bar."),
 			app_config->get_bool("show_printables_button"));
 
 		activate_options_tab(m_optgroup_other);
