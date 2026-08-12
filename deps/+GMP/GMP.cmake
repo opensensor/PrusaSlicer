@@ -61,7 +61,9 @@ else ()
 
     ExternalProject_Add(dep_GMP
         EXCLUDE_FROM_ALL ON
-        URL https://gmplib.org/download/gmp/gmp-6.2.1.tar.bz2
+        # gmplib.org intermittently refuses GitHub-hosted runners. GNU's mirror
+        # serves the same release archive and is substantially more reliable.
+        URL https://ftp.gnu.org/gnu/gmp/gmp-6.2.1.tar.bz2
         URL_HASH SHA256=eae9326beb4158c386e39a356818031bd28f3124cf915f8c5b1dc4c7a36b4d7c
         DOWNLOAD_DIR ${${PROJECT_NAME}_DEP_DOWNLOAD_DIR}/GMP
         PATCH_COMMAND git apply --ignore-whitespace ${CMAKE_CURRENT_LIST_DIR}/gmp-gcc-15.patch
