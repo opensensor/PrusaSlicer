@@ -165,7 +165,7 @@ jobs:
       - name: Build application and MMU tests
         run: >-
           cmake --build build
-          --target PrusaSlicer libslic3r_tests
+          --target PrusaSlicer OCCTWrapper libslic3r_tests
           --parallel 2
 
       - name: Run MMU auto-colorization tests
@@ -239,7 +239,7 @@ jobs:
         shell: pwsh
         run: |
           cmake --build build --config Release `
-            --target PrusaSlicer_app_gui PrusaSlicer_app_console PrusaSlicer_app_gcodeviewer libslic3r_tests `
+            --target PrusaSlicer_app_gui PrusaSlicer_app_console PrusaSlicer_app_gcodeviewer PrusaSlicerDllsCopy OCCTWrapper libslic3r_tests `
             --parallel 2
 
       - name: Run MMU auto-colorization tests
@@ -261,7 +261,7 @@ jobs:
           Get-ChildItem $source -File | Where-Object { $_.Extension -in '.exe', '.dll' } | Copy-Item -Destination $packageRoot
           Copy-Item resources (Join-Path $packageRoot 'resources') -Recurse
 
-          $required = @('prusa-slicer.exe', 'prusa-slicer-console.exe', 'prusa-gcodeviewer.exe', 'PrusaSlicer.dll', 'libgmp-10.dll', 'libmpfr-4.dll', 'WebView2Loader.dll')
+          $required = @('prusa-slicer.exe', 'prusa-slicer-console.exe', 'prusa-gcodeviewer.exe', 'PrusaSlicer.dll', 'OCCTWrapper.dll', 'libgmp-10.dll', 'libmpfr-4.dll', 'WebView2Loader.dll')
           foreach ($file in $required) {
             if (-not (Test-Path (Join-Path $packageRoot $file))) { throw "Missing release file: $file" }
           }
