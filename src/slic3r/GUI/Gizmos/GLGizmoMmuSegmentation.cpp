@@ -146,7 +146,7 @@ bool GLGizmoMmuSegmentation::on_init()
     m_desc["split_triangles"]      = _u8L("Split triangles");
 
     m_desc["height_range_z_range"] = _u8L("Height range");
-    
+
     // Auto-colorization related descriptions
     m_desc["auto_colorize"]        = _u8L("Auto-colorize");
     m_desc["auto_colorize_enable"] = _u8L("Enable auto-colorization");
@@ -172,11 +172,11 @@ bool GLGizmoMmuSegmentation::on_init()
     m_desc["distribution"]         = _u8L("Distribution") + " %";
 
     init_extruders_data();
-    
+
     // Initialize auto-colorization parameters
     m_auto_colorize_params.extruders.resize(std::min(size_t(5), m_original_extruders_names.size()));
     m_auto_colorize_params.distribution.resize(std::min(size_t(5), m_original_extruders_names.size()));
-    
+
     // Set default values for extruders (first two enabled)
     for (size_t i = 0; i < m_auto_colorize_params.extruders.size(); ++i) {
         m_auto_colorize_params.extruders[i] = (i < 2) ? int(i + 1) : 0;
@@ -596,12 +596,12 @@ void GLGizmoMmuSegmentation::on_render_input_window(float x, float y, float bott
         m_c->object_clipper()->set_position_by_ratio(clp_dist, true);
 
     ImGui::Separator();
-    
+
     // Add auto-colorization section
     if (ImGui::CollapsingHeader(m_desc.at("auto_colorize").c_str(), ImGuiTreeNodeFlags_DefaultOpen)) {
         render_auto_colorization_ui(x, y, bottom_limit, ImGui::GetContentRegionAvail().x);
     }
-    
+
     ImGui::Separator();
     if (ImGuiPureWrap::button(m_desc.at("remove_all"))) {
         Plater::TakeSnapshot snapshot(wxGetApp().plater(), _L("Reset selection"),
@@ -907,20 +907,20 @@ void GLGizmoMmuSegmentation::preview_auto_colorization()
     ModelObject* mo = m_c->selection_info()->model_object();
     if (!mo)
         return;
-    
+
     // Take a snapshot for undo/redo
     Plater::TakeSnapshot snapshot(wxGetApp().plater(), _L("Preview auto-colorization"),
                                   UndoRedo::SnapshotType::GizmoAction);
-    
+
     // Generate a preview of the auto-colorization
     auto preview_selectors = Slic3r::preview_auto_colorization(*mo, m_auto_colorize_params);
-    
+
     // Apply the preview to the triangle selectors
     int idx = -1;
     for (ModelVolume* mv : mo->volumes) {
         if (!mv->is_model_part())
             continue;
-        
+
         ++idx;
         if (idx < int(preview_selectors.size())) {
             // Copy the preview selector data to the actual selector
@@ -928,7 +928,7 @@ void GLGizmoMmuSegmentation::preview_auto_colorization()
             m_triangle_selectors[idx]->request_update_render_data();
         }
     }
-    
+
     // Mark the parent as dirty to trigger a redraw
     m_parent.set_as_dirty();
 }
@@ -939,17 +939,17 @@ void GLGizmoMmuSegmentation::apply_auto_colorization()
     ModelObject* mo = m_c->selection_info()->model_object();
     if (!mo)
         return;
-    
+
     // Take a snapshot for undo/redo
     Plater::TakeSnapshot snapshot(wxGetApp().plater(), _L("Apply auto-colorization"),
                                   UndoRedo::SnapshotType::GizmoAction);
-    
+
     // Apply the auto-colorization to the model object
     Slic3r::apply_auto_colorization(*mo, m_auto_colorize_params);
-    
+
     // Update the triangle selectors from the model
     update_from_model_object();
-    
+
     // Mark the parent as dirty to trigger a redraw and schedule background processing
     m_parent.set_as_dirty();
     m_parent.post_event(SimpleEvent(EVT_GLCANVAS_SCHEDULE_BACKGROUND_PROCESS));
@@ -959,13 +959,13 @@ void GLGizmoMmuSegmentation::apply_auto_colorization()
 void GLGizmoMmuSegmentation::render_auto_colorization_ui(float x, float y, float bottom_limit, float window_width)
 {
     const float max_tooltip_width = ImGui::GetFontSize() * 20.0f;
-    
+
     // Pattern type selection
     ImGui::AlignTextToFramePadding();
     ImGuiPureWrap::text(m_desc.at("pattern_type"));
     ImGui::SameLine();
     ImGui::PushItemWidth(window_width * 0.7f);
-    
+
     // Create a combo box for pattern selection
     const char* pattern_items[] = {
         m_desc.at("height_gradient").c_str(),
@@ -974,24 +974,24 @@ void GLGizmoMmuSegmentation::render_auto_colorization_ui(float x, float y, float
         m_desc.at("noise_pattern").c_str(),
         m_desc.at("optimized_changes").c_str()
     };
-    
+
     int current_pattern = static_cast<int>(m_auto_colorize_params.pattern_type);
     if (ImGui::Combo("##pattern_type", &current_pattern, pattern_items, IM_ARRAYSIZE(pattern_items))) {
         m_auto_colorize_params.pattern_type = static_cast<MMUAutoColorizationPattern>(current_pattern);
     }
-    
+
     ImGui::Separator();
-    
+
     // Extruder selection and distribution
     for (size_t i = 0; i < m_auto_colorize_params.extruders.size(); ++i) {
         ImGui::PushID(int(i));
-        
+
         // Checkbox to enable/disable this extruder
         bool extruder_enabled = m_auto_colorize_params.extruders[i] > 0;
         if (ImGui::Checkbox((m_desc.at("extruder_use") + " " + std::to_string(i + 1)).c_str(), &extruder_enabled)) {
             m_auto_colorize_params.extruders[i] = extruder_enabled ? int(i + 1) : 0;
         }
-        
+
         // Distribution slider (only show if extruder is enabled)
         if (extruder_enabled) {
             ImGui::SameLine();
@@ -1001,12 +1001,12 @@ void GLGizmoMmuSegmentation::render_auto_colorization_ui(float x, float y, float
                 m_auto_colorize_params.distribution[i] = distribution;
             }
         }
-        
+
         ImGui::PopID();
     }
-    
+
     ImGui::Separator();
-    
+
     // Pattern-specific parameters
     switch (m_auto_colorize_params.pattern_type) {
         case MMUAutoColorizationPattern::HeightGradient: {
@@ -1016,19 +1016,19 @@ void GLGizmoMmuSegmentation::render_auto_colorization_ui(float x, float y, float
             ImGui::SameLine();
             ImGui::PushItemWidth(window_width * 0.5f);
             m_imgui->slider_float("##height_start", &m_auto_colorize_params.height_start_percent, 0.0f, 100.0f, "%.1f%%");
-            
+
             // End height
             ImGui::AlignTextToFramePadding();
             ImGuiPureWrap::text(m_desc.at("height_end"));
             ImGui::SameLine();
             ImGui::PushItemWidth(window_width * 0.5f);
             m_imgui->slider_float("##height_end", &m_auto_colorize_params.height_end_percent, 0.0f, 100.0f, "%.1f%%");
-            
+
             // Reverse direction
             ImGui::Checkbox(m_desc.at("height_reverse").c_str(), &m_auto_colorize_params.height_reverse);
             break;
         }
-        
+
         case MMUAutoColorizationPattern::RadialGradient: {
             // Radius
             ImGui::AlignTextToFramePadding();
@@ -1036,12 +1036,12 @@ void GLGizmoMmuSegmentation::render_auto_colorization_ui(float x, float y, float
             ImGui::SameLine();
             ImGui::PushItemWidth(window_width * 0.5f);
             m_imgui->slider_float("##radial_radius", &m_auto_colorize_params.radial_radius, 1.0f, 200.0f, "%.1f");
-            
+
             // Reverse direction
             ImGui::Checkbox(m_desc.at("radial_reverse").c_str(), &m_auto_colorize_params.radial_reverse);
             break;
         }
-        
+
         case MMUAutoColorizationPattern::SpiralPattern: {
             // Pitch
             ImGui::AlignTextToFramePadding();
@@ -1049,7 +1049,7 @@ void GLGizmoMmuSegmentation::render_auto_colorization_ui(float x, float y, float
             ImGui::SameLine();
             ImGui::PushItemWidth(window_width * 0.5f);
             m_imgui->slider_float("##spiral_pitch", &m_auto_colorize_params.spiral_pitch, 1.0f, 50.0f, "%.1f");
-            
+
             // Turns
             ImGui::AlignTextToFramePadding();
             ImGuiPureWrap::text(m_desc.at("spiral_turns"));
@@ -1059,12 +1059,12 @@ void GLGizmoMmuSegmentation::render_auto_colorization_ui(float x, float y, float
             if (ImGui::SliderInt("##spiral_turns", &turns, 1, 20)) {
                 m_auto_colorize_params.spiral_turns = turns;
             }
-            
+
             // Reverse direction
             ImGui::Checkbox(m_desc.at("spiral_reverse").c_str(), &m_auto_colorize_params.spiral_reverse);
             break;
         }
-        
+
         case MMUAutoColorizationPattern::NoisePattern: {
             // Scale
             ImGui::AlignTextToFramePadding();
@@ -1072,7 +1072,7 @@ void GLGizmoMmuSegmentation::render_auto_colorization_ui(float x, float y, float
             ImGui::SameLine();
             ImGui::PushItemWidth(window_width * 0.5f);
             m_imgui->slider_float("##noise_scale", &m_auto_colorize_params.noise_scale, 1.0f, 50.0f, "%.1f");
-            
+
             // Seed
             ImGui::AlignTextToFramePadding();
             ImGuiPureWrap::text(m_desc.at("noise_seed"));
@@ -1084,25 +1084,25 @@ void GLGizmoMmuSegmentation::render_auto_colorization_ui(float x, float y, float
             }
             break;
         }
-        
+
         case MMUAutoColorizationPattern::OptimizedChanges:
             // No specific parameters for optimized changes
             ImGuiPureWrap::text(_u8L("Optimizes color changes to minimize tool changes."));
             break;
-            
+
         default:
             break;
     }
-    
+
     ImGui::Separator();
-    
+
     // Preview and Apply buttons
     if (ImGui::Button(m_desc.at("preview").c_str(), ImVec2(window_width * 0.48f, 0))) {
         preview_auto_colorization();
     }
-    
+
     ImGui::SameLine();
-    
+
     if (ImGui::Button(m_desc.at("apply").c_str(), ImVec2(window_width * 0.48f, 0))) {
         apply_auto_colorization();
     }

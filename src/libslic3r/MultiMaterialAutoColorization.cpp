@@ -77,11 +77,11 @@ namespace {
             int BB = p[B + 1] + Z;
 
             // Add blended results from 8 corners of cube
-            double res = lerp(w, lerp(v, lerp(u, grad(p[AA], x, y, z), 
+            double res = lerp(w, lerp(v, lerp(u, grad(p[AA], x, y, z),
                                                 grad(p[BA], x-1, y, z)),
-                                        lerp(u, grad(p[AB], x, y-1, z), 
+                                        lerp(u, grad(p[AB], x, y-1, z),
                                                 grad(p[BB], x-1, y-1, z))),
-                                lerp(v, lerp(u, grad(p[AA+1], x, y, z-1), 
+                                lerp(v, lerp(u, grad(p[AA+1], x, y, z-1),
                                                 grad(p[BA+1], x-1, y, z-1)),
                                         lerp(u, grad(p[AB+1], x, y-1, z-1),
                                                 grad(p[BB+1], x-1, y-1, z-1))));
@@ -89,12 +89,12 @@ namespace {
         }
 
     private:
-        double fade(double t) { 
+        double fade(double t) {
             return t * t * t * (t * (t * 6 - 15) + 10);
         }
 
-        double lerp(double t, double a, double b) { 
-            return a + t * (b - a); 
+        double lerp(double t, double a, double b) {
+            return a + t * (b - a);
         }
 
         double grad(int hash, double x, double y, double z) {
@@ -149,21 +149,21 @@ int assign_color_from_distribution(float normalized_value, const std::vector<int
 void apply_height_gradient(TriangleSelector& selector, const ModelVolume& volume, const MMUAutoColorizationParams& params) {
     const TriangleMesh& mesh = volume.mesh();
     const Transform3d& volume_transform = volume.get_matrix();
-    
+
     // Get the bounding box to determine height range
     BoundingBoxf3 bbox = mesh.bounding_box().transformed(volume_transform);
     float min_z = bbox.min.z();
     float max_z = bbox.max.z();
     float height_range = max_z - min_z;
-    
+
     // Calculate start and end heights based on percentages
     float start_height = min_z + (params.height_start_percent / 100.0f) * height_range;
     float end_height = min_z + (params.height_end_percent / 100.0f) * height_range;
-    
+
     // Process each triangle
     for (size_t i = 0; i < mesh.its.indices.size(); ++i) {
         const stl_triangle_vertex_indices& indices = mesh.its.indices[i];
-        
+
         // Calculate the center of the triangle
         Vec3f center = Vec3f::Zero();
         for (int j = 0; j < 3; ++j) {
@@ -171,21 +171,21 @@ void apply_height_gradient(TriangleSelector& selector, const ModelVolume& volume
             center += vertex;
         }
         center /= 3.0f;
-        
+
         // Transform the center to world coordinates
         Vec3d center_world = volume_transform * center.cast<double>();
-        
+
         // Calculate normalized height position
         float normalized_height = (center_world.z() - start_height) / (end_height - start_height);
         normalized_height = std::clamp(normalized_height, 0.0f, 1.0f);
-        
+
         // Reverse direction if needed
         if (params.height_reverse)
             normalized_height = 1.0f - normalized_height;
-        
+
         // Assign color based on distribution
         int extruder_id = assign_color_from_distribution(normalized_height, params.extruders, params.distribution);
-        
+
         // Set the triangle state
         if (extruder_id > 0)
             selector.set_facet(i, TriangleStateType(extruder_id));
@@ -196,16 +196,16 @@ void apply_height_gradient(TriangleSelector& selector, const ModelVolume& volume
 void apply_radial_gradient(TriangleSelector& selector, const ModelVolume& volume, const MMUAutoColorizationParams& params) {
     const TriangleMesh& mesh = volume.mesh();
     const Transform3d& volume_transform = volume.get_matrix();
-    
+
     // Calculate the center of the mesh for determining outward-facing triangles
     Vec3d mesh_center = mesh.bounding_box().center().cast<double>();
     mesh_center = volume_transform * mesh_center;
-    
+
     // Process each triangle
     for (size_t i = 0; i < mesh.its.indices.size(); ++i) {
-            
+
         const stl_triangle_vertex_indices& indices = mesh.its.indices[i];
-        
+
         // Calculate the center of the triangle
         Vec3f center = Vec3f::Zero();
         for (int j = 0; j < 3; ++j) {
@@ -213,26 +213,26 @@ void apply_radial_gradient(TriangleSelector& selector, const ModelVolume& volume
             center += vertex;
         }
         center /= 3.0f;
-        
+
         // Transform the center to world coordinates
         Vec3d center_world = volume_transform * center.cast<double>();
-        
+
         // Calculate distance from radial center (in XY plane)
         Vec3f radial_center_world = params.radial_center;
-        float distance = std::sqrt(std::pow(center_world.x() - radial_center_world.x(), 2) + 
+        float distance = std::sqrt(std::pow(center_world.x() - radial_center_world.x(), 2) +
                                   std::pow(center_world.y() - radial_center_world.y(), 2));
-        
+
         // Normalize distance by radius
         float normalized_distance = distance / params.radial_radius;
         normalized_distance = std::clamp(normalized_distance, 0.0f, 1.0f);
-        
+
         // Reverse direction if needed
         if (params.radial_reverse)
             normalized_distance = 1.0f - normalized_distance;
-        
+
         // Assign color based on distribution
         int extruder_id = assign_color_from_distribution(normalized_distance, params.extruders, params.distribution);
-        
+
         // Set the triangle state
         if (extruder_id > 0)
             selector.set_facet(i, TriangleStateType(extruder_id));
@@ -243,16 +243,16 @@ void apply_radial_gradient(TriangleSelector& selector, const ModelVolume& volume
 void apply_spiral_pattern(TriangleSelector& selector, const ModelVolume& volume, const MMUAutoColorizationParams& params) {
     const TriangleMesh& mesh = volume.mesh();
     const Transform3d& volume_transform = volume.get_matrix();
-    
+
     // Calculate the center of the mesh for determining outward-facing triangles
     Vec3d mesh_center = mesh.bounding_box().center().cast<double>();
     mesh_center = volume_transform * mesh_center;
-    
+
     // Process each triangle
     for (size_t i = 0; i < mesh.its.indices.size(); ++i) {
-            
+
         const stl_triangle_vertex_indices& indices = mesh.its.indices[i];
-        
+
         // Calculate the center of the triangle
         Vec3f center = Vec3f::Zero();
         for (int j = 0; j < 3; ++j) {
@@ -260,31 +260,31 @@ void apply_spiral_pattern(TriangleSelector& selector, const ModelVolume& volume,
             center += vertex;
         }
         center /= 3.0f;
-        
+
         // Transform the center to world coordinates
         Vec3d center_world = volume_transform * center.cast<double>();
-        
+
         // Calculate polar coordinates
         Vec3f spiral_center_world = params.spiral_center;
         float dx = center_world.x() - spiral_center_world.x();
         float dy = center_world.y() - spiral_center_world.y();
         float angle = std::atan2(dy, dx);
         if (angle < 0) angle += 2 * M_PI;
-        
+
         // Calculate distance from spiral center
         float distance = std::sqrt(dx*dx + dy*dy);
-        
+
         // Calculate spiral value (combination of angle and distance)
         float spiral_value = (angle / (2 * M_PI) + distance / params.spiral_pitch) / params.spiral_turns;
         spiral_value = std::fmod(spiral_value, 1.0f);
-        
+
         // Reverse direction if needed
         if (params.spiral_reverse)
             spiral_value = 1.0f - spiral_value;
-        
+
         // Assign color based on distribution
         int extruder_id = assign_color_from_distribution(spiral_value, params.extruders, params.distribution);
-        
+
         // Set the triangle state
         if (extruder_id > 0)
             selector.set_facet(i, TriangleStateType(extruder_id));
@@ -295,14 +295,14 @@ void apply_spiral_pattern(TriangleSelector& selector, const ModelVolume& volume,
 void apply_noise_pattern(TriangleSelector& selector, const ModelVolume& volume, const MMUAutoColorizationParams& params) {
     const TriangleMesh& mesh = volume.mesh();
     const Transform3d& volume_transform = volume.get_matrix();
-    
+
     // Initialize Perlin noise generator
     PerlinNoise noise(params.noise_seed);
-    
+
     // Process each triangle
     for (size_t i = 0; i < mesh.its.indices.size(); ++i) {
         const stl_triangle_vertex_indices& indices = mesh.its.indices[i];
-        
+
         // Calculate the center of the triangle
         Vec3f center = Vec3f::Zero();
         for (int j = 0; j < 3; ++j) {
@@ -310,10 +310,10 @@ void apply_noise_pattern(TriangleSelector& selector, const ModelVolume& volume, 
             center += vertex;
         }
         center /= 3.0f;
-        
+
         // Transform the center to world coordinates
         Vec3d center_world = volume_transform * center.cast<double>();
-        
+
         // Calculate noise value
         float scale = params.noise_scale / 100.0f; // Convert to a reasonable scale
         float noise_value = noise.noise(
@@ -321,10 +321,10 @@ void apply_noise_pattern(TriangleSelector& selector, const ModelVolume& volume, 
             center_world.y() * scale,
             center_world.z() * scale
         );
-        
+
         // Assign color based on noise value and distribution
         int extruder_id = assign_color_from_distribution(noise_value, params.extruders, params.distribution);
-        
+
         // Set the triangle state
         if (extruder_id > 0)
             selector.set_facet(i, TriangleStateType(extruder_id));
@@ -335,31 +335,31 @@ void apply_noise_pattern(TriangleSelector& selector, const ModelVolume& volume, 
 void apply_optimized_changes(TriangleSelector& selector, const ModelVolume& volume, const MMUAutoColorizationParams& params) {
     // This is a simplified implementation that divides the model into horizontal bands
     // A more sophisticated implementation would use clustering algorithms to minimize color changes
-    
+
     const TriangleMesh& mesh = volume.mesh();
     const Transform3d& volume_transform = volume.get_matrix();
-    
+
     // Get the bounding box to determine height range
     BoundingBoxf3 bbox = mesh.bounding_box().transformed(volume_transform);
     float min_z = bbox.min.z();
     float max_z = bbox.max.z();
     float height_range = max_z - min_z;
-    
+
     // Count active extruders
     int active_extruders = 0;
     for (int e : params.extruders) {
         if (e > 0) active_extruders++;
     }
-    
+
     if (active_extruders == 0) return;
-    
+
     // Calculate band height based on distribution
     float band_height = height_range / active_extruders;
-    
+
     // Process each triangle
     for (size_t i = 0; i < mesh.its.indices.size(); ++i) {
         const stl_triangle_vertex_indices& indices = mesh.its.indices[i];
-        
+
         // Calculate the center of the triangle
         Vec3f center = Vec3f::Zero();
         for (int j = 0; j < 3; ++j) {
@@ -367,14 +367,14 @@ void apply_optimized_changes(TriangleSelector& selector, const ModelVolume& volu
             center += vertex;
         }
         center /= 3.0f;
-        
+
         // Transform the center to world coordinates
         Vec3d center_world = volume_transform * center.cast<double>();
-        
+
         // Calculate which band this triangle belongs to
         int band = static_cast<int>((center_world.z() - min_z) / band_height);
         band = std::clamp(band, 0, active_extruders - 1);
-        
+
         // Find the corresponding extruder
         int extruder_idx = 0;
         for (size_t e = 0; e < params.extruders.size(); ++e) {
@@ -393,7 +393,7 @@ void apply_optimized_changes(TriangleSelector& selector, const ModelVolume& volu
 // Validate and normalize the auto-colorization parameters
 MMUAutoColorizationParams validate_auto_colorization_params(const MMUAutoColorizationParams& params) {
     MMUAutoColorizationParams validated = params;
-    
+
     // Ensure we have at least one active extruder
     bool has_active_extruder = false;
     for (int e : validated.extruders) {
@@ -402,18 +402,18 @@ MMUAutoColorizationParams validate_auto_colorization_params(const MMUAutoColoriz
             break;
         }
     }
-    
+
     if (!has_active_extruder && !validated.extruders.empty()) {
         validated.extruders[0] = 1; // Set first extruder as active if none are
     }
-    
+
     // Ensure distribution values are valid
     float total_distribution = 0.0f;
     for (float& d : validated.distribution) {
         d = std::max(0.0f, d); // Ensure non-negative
         total_distribution += d;
     }
-    
+
     // Normalize distribution if needed
     if (total_distribution > 0.0f) {
         for (float& d : validated.distribution) {
@@ -425,7 +425,7 @@ MMUAutoColorizationParams validate_auto_colorization_params(const MMUAutoColoriz
         for (int e : validated.extruders) {
             if (e > 0) active_count++;
         }
-        
+
         if (active_count > 0) {
             float equal_value = 100.0f / active_count;
             for (size_t i = 0; i < validated.extruders.size() && i < validated.distribution.size(); ++i) {
@@ -433,22 +433,22 @@ MMUAutoColorizationParams validate_auto_colorization_params(const MMUAutoColoriz
             }
         }
     }
-    
+
     // Ensure height gradient parameters are valid
     validated.height_start_percent = std::clamp(validated.height_start_percent, 0.0f, 100.0f);
     validated.height_end_percent = std::clamp(validated.height_end_percent, 0.0f, 100.0f);
-    
+
     // Ensure radial gradient parameters are valid
     validated.radial_radius = std::max(0.1f, validated.radial_radius);
-    
+
     // Ensure spiral pattern parameters are valid
     validated.spiral_pitch = std::max(0.1f, validated.spiral_pitch);
     validated.spiral_turns = std::max(1, validated.spiral_turns);
-    
+
     // Ensure noise pattern parameters are valid
     validated.noise_scale = std::max(0.1f, validated.noise_scale);
     validated.noise_threshold = std::clamp(validated.noise_threshold, 0.0f, 1.0f);
-    
+
     return validated;
 }
 
@@ -456,15 +456,15 @@ MMUAutoColorizationParams validate_auto_colorization_params(const MMUAutoColoriz
 void apply_auto_colorization(ModelObject& model_object, const MMUAutoColorizationParams& params) {
     // Validate and normalize parameters
     MMUAutoColorizationParams validated_params = validate_auto_colorization_params(params);
-    
+
     // Process each volume in the model object
     for (ModelVolume* volume : model_object.volumes) {
         if (!volume->is_model_part())
             continue;
-            
+
         // Create a triangle selector for this volume
         TriangleSelector selector(volume->mesh());
-        
+
         // Apply the selected pattern
         switch (validated_params.pattern_type) {
             case MMUAutoColorizationPattern::HeightGradient:
@@ -487,7 +487,7 @@ void apply_auto_colorization(ModelObject& model_object, const MMUAutoColorizatio
                 apply_height_gradient(selector, *volume, validated_params);
                 break;
         }
-        
+
         // Apply the colorization to the volume
         volume->mm_segmentation_facets.set(selector);
     }
@@ -495,23 +495,23 @@ void apply_auto_colorization(ModelObject& model_object, const MMUAutoColorizatio
 
 // Generate a preview of the auto-colorization without modifying the model
 std::vector<std::unique_ptr<TriangleSelector>> preview_auto_colorization(
-    const ModelObject& model_object, 
-    const MMUAutoColorizationParams& params) 
+    const ModelObject& model_object,
+    const MMUAutoColorizationParams& params)
 {
     // Validate and normalize parameters
     MMUAutoColorizationParams validated_params = validate_auto_colorization_params(params);
-    
+
     // Create a vector to store the triangle selectors
     std::vector<std::unique_ptr<TriangleSelector>> result_selectors;
-    
+
     // Process each volume in the model object
     for (const ModelVolume* volume : model_object.volumes) {
         if (!volume->is_model_part())
             continue;
-            
+
         // Create a triangle selector for this volume
         auto selector = std::make_unique<TriangleSelector>(volume->mesh());
-        
+
         // Apply the selected pattern
         switch (validated_params.pattern_type) {
             case MMUAutoColorizationPattern::HeightGradient:
@@ -534,11 +534,11 @@ std::vector<std::unique_ptr<TriangleSelector>> preview_auto_colorization(
                 apply_height_gradient(*selector, *volume, validated_params);
                 break;
         }
-        
+
         // Add the selector to the vector
         result_selectors.push_back(std::move(selector));
     }
-    
+
     return result_selectors;
 }
 

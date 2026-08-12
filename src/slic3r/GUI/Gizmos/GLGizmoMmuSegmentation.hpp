@@ -151,17 +151,17 @@ private:
     // This map holds all translated description texts, so they can be easily referenced during layout calculations
     // etc. When language changes, GUI is recreated and this class constructed again, so the change takes effect.
     std::map<std::string, std::string> m_desc;
-    
+
     // Auto-colorization related members
     bool m_show_auto_colorize = false;
     MMUAutoColorizationParams m_auto_colorize_params;
-    
+
     // Preview auto-colorization without applying it
     void preview_auto_colorization();
-    
+
     // Apply auto-colorization to the model
     void apply_auto_colorization();
-    
+
     // Render the auto-colorization UI section
     void render_auto_colorization_ui(float x, float y, float bottom_limit, float window_width);
 };
