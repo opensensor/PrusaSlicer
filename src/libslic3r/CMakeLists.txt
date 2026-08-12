@@ -280,6 +280,8 @@ set(SLIC3R_SOURCES
     FileReader.hpp
     MultiMaterialSegmentation.cpp
     MultiMaterialSegmentation.hpp
+    MultiMaterialAutoColorization.cpp
+    MultiMaterialAutoColorization.hpp
     MeshNormals.hpp
     MeshNormals.cpp
     Measure.hpp
