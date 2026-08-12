@@ -135,7 +135,7 @@ void PreferencesDialog::show(const std::string& highlight_opt_key /*= std::strin
 		downloader->set_path_name(app_config->get("url_downloader_dest"));
 		downloader->allow(!app_config->has("downloader_url_registered") || app_config->get_bool("downloader_url_registered"));
 
-		for (const std::string opt_key : {"suppress_hyperlinks", "downloader_url_registered", "show_login_button"})
+		for (const std::string opt_key : {"suppress_hyperlinks", "downloader_url_registered", "show_login_button", "show_step_import_parameters", "show_printables_button"})
 			m_optgroup_other->set_value(opt_key, app_config->get_bool(opt_key));
 		// by default "Log in" button is visible
 		if (!app_config->has("show_login_button"))

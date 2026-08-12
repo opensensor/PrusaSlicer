@@ -238,6 +238,9 @@ void AppConfig::set_defaults()
     if (get("show_step_import_parameters").empty())
         set("show_step_import_parameters", "1");
 
+    if (get("show_printables_button").empty())
+        set("show_printables_button", "1");
+
     if (get("linear_precision").empty())
         set("linear_precision", "0.005");
 
