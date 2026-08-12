@@ -418,18 +418,13 @@ case type: \
     }
 
     BOOST_LOG_TRIVIAL(error) << "WebViewDialog error: " << category;
-    
-    // Don't treat wxWEBVIEW_NAV_ERR_OTHER as fatal - it often occurs for cancelled 
-    // subresource requests while the main page continues loading successfully.
-    // Only show error page for serious errors like connection or certificate failures.
-    int err = evt.GetInt();
-    if (err == wxWEBVIEW_NAV_ERR_CONNECTION || 
-        err == wxWEBVIEW_NAV_ERR_CERTIFICATE ||
-        err == wxWEBVIEW_NAV_ERR_AUTH ||
-        err == wxWEBVIEW_NAV_ERR_SECURITY) {
+
+    // GTK may report a cancelled subresource as OTHER or USER_CANCELLED while
+    // the main login page continues loading. Preserve fatal handling for bad
+    // requests, missing pages, connection failures and security failures.
+    const int error = evt.GetInt();
+    if (error != wxWEBVIEW_NAV_ERR_OTHER && error != wxWEBVIEW_NAV_ERR_USER_CANCELLED)
         load_error_page();
-    }
-    // For wxWEBVIEW_NAV_ERR_OTHER, wxWEBVIEW_NAV_ERR_REQUEST, etc. - just log and continue
 }
 
 void WebViewDialog::load_error_page()
