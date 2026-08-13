@@ -56,8 +56,18 @@ if (SLIC3R_GUI)
 
     string(REGEX MATCH "wxpng" WX_PNG_BUILTIN ${wxWidgets_LIBRARIES})
     if (PNG_FOUND AND NOT WX_PNG_BUILTIN)
+        if (APPLE)
+            set(WX_PNG_LIBRARIES ${wxWidgets_LIBRARIES})
+            list(FILTER WX_PNG_LIBRARIES INCLUDE REGEX png)
+        endif ()
         list(FILTER wxWidgets_LIBRARIES EXCLUDE REGEX png)
         list(APPEND wxWidgets_LIBRARIES ${PNG_LIBRARIES})
+        # The dependency bundle builds wxWidgets against a symbol-prefixed
+        # libpng. Keep that archive in addition to the regular libpng used by
+        # libslic3r; the two libraries intentionally expose different symbols.
+        if (APPLE AND WX_PNG_LIBRARIES)
+            list(APPEND wxWidgets_LIBRARIES ${WX_PNG_LIBRARIES})
+        endif ()
     endif ()
 
     string(REGEX MATCH "wxjpeg" WX_JPEG_BUILTIN ${wxWidgets_LIBRARIES})
