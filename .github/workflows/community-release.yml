@@ -137,7 +137,7 @@ jobs:
 
       - name: Restore compiled dependencies
         id: dependency-cache
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: deps/build/destdir
           key: release-deps-linux-x64-gcc-${{ steps.toolchain.outputs.gcc }}-${{ hashFiles('deps/**') }}
@@ -149,6 +149,13 @@ jobs:
             -DDEP_WX_GTK3=ON \
             -DCMAKE_POLICY_VERSION_MINIMUM=3.5
           cmake --build deps/build --parallel 2
+
+      - name: Save compiled dependencies
+        if: steps.dependency-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: deps/build/destdir
+          key: ${{ steps.dependency-cache.outputs.cache-primary-key }}
 
       - name: Configure PrusaSlicer
         run: |
@@ -213,7 +220,7 @@ jobs:
 
       - name: Restore compiled dependencies
         id: dependency-cache
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: deps/build/destdir
           key: release-deps-windows-x64-msvc2022-${{ hashFiles('deps/**') }}
@@ -226,6 +233,13 @@ jobs:
             -DDEP_DEBUG=OFF `
             -DCMAKE_POLICY_VERSION_MINIMUM=3.5
           cmake --build deps/build --config Release --parallel 2
+
+      - name: Save compiled dependencies
+        if: steps.dependency-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: deps/build/destdir
+          key: ${{ steps.dependency-cache.outputs.cache-primary-key }}
 
       - name: Configure PrusaSlicer
         shell: pwsh
@@ -311,7 +325,7 @@ jobs:
 
       - name: Restore compiled dependencies
         id: dependency-cache
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: deps/build/destdir
           key: release-deps-macos-intel-clang-${{ steps.toolchain.outputs.clang }}-${{ hashFiles('deps/**') }}
@@ -323,6 +337,13 @@ jobs:
             -DCMAKE_OSX_DEPLOYMENT_TARGET=13.0 \
             -DCMAKE_POLICY_VERSION_MINIMUM=3.5
           cmake --build deps/build --parallel 2
+
+      - name: Save compiled dependencies
+        if: steps.dependency-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: deps/build/destdir
+          key: ${{ steps.dependency-cache.outputs.cache-primary-key }}
 
       - name: Configure PrusaSlicer
         run: |

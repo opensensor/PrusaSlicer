@@ -45,7 +45,7 @@ jobs:
 
       - name: Restore compiled dependencies
         id: dependency-cache
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: deps/build/destdir
           key: prusaslicer-deps-${{ runner.os }}-${{ runner.arch }}-gcc-${{ steps.toolchain.outputs.gcc }}-${{ hashFiles('deps/**') }}
@@ -60,6 +60,13 @@ jobs:
       - name: Build dependencies
         if: steps.dependency-cache.outputs.cache-hit != 'true'
         run: cmake --build deps/build --parallel 2
+
+      - name: Save compiled dependencies
+        if: steps.dependency-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: deps/build/destdir
+          key: ${{ steps.dependency-cache.outputs.cache-primary-key }}
 
       - name: Configure PrusaSlicer
         run: >-
