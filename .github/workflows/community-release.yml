@@ -250,7 +250,7 @@ jobs:
             -DSLIC3R_PCH=OFF `
             -DSLIC3R_BUILD_TESTS=ON `
             -DCMAKE_CONFIGURATION_TYPES=Release `
-            -DCMAKE_POLICY_VERSION_MINIMUM=3.5 `
+            "-DCMAKE_POLICY_VERSION_MINIMUM=3.5" `
             -DCMAKE_PREFIX_PATH="$env:GITHUB_WORKSPACE/deps/build/destdir/usr/local"
 
       - name: Build application and MMU tests
