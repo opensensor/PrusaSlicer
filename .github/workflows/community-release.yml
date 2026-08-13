@@ -8,6 +8,16 @@ on:
         required: true
         default: master
         type: string
+      platform:
+        description: Native platform to rehearse
+        required: true
+        default: all
+        type: choice
+        options:
+          - all
+          - linux
+          - windows
+          - macos
   push:
     tags:
       - 'community-v*'
@@ -16,7 +26,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: community-release-${{ github.ref }}
+  group: community-release-${{ github.ref }}-${{ inputs.platform || 'all' }}
   cancel-in-progress: false
 
 jobs:
@@ -104,6 +114,7 @@ jobs:
 
   linux:
     name: Linux x64 portable bundle
+    if: github.event_name == 'push' || inputs.platform == 'all' || inputs.platform == 'linux'
     needs: metadata
     runs-on: ubuntu-24.04
     timeout-minutes: 300
@@ -209,6 +220,7 @@ jobs:
 
   windows:
     name: Windows x64 portable bundle
+    if: github.event_name == 'push' || inputs.platform == 'all' || inputs.platform == 'windows'
     needs: metadata
     runs-on: windows-2022
     timeout-minutes: 300
@@ -307,6 +319,7 @@ jobs:
 
   macos:
     name: macOS Intel disk image
+    if: github.event_name == 'push' || inputs.platform == 'all' || inputs.platform == 'macos'
     needs: metadata
     runs-on: macos-15-intel
     timeout-minutes: 300
