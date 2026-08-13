@@ -176,8 +176,10 @@ jobs:
           PACKAGE: ${{ needs.metadata.outputs.package_prefix }}-linux-ubuntu-24.04-x64
         run: |
           set -euo pipefail
-          mkdir -p stage dist
-          cmake --install build --prefix "$GITHUB_WORKSPACE/stage/$PACKAGE"
+          mkdir -p "stage/$PACKAGE/bin" "stage/$PACKAGE/resources" dist
+          cp build/src/prusa-slicer "stage/$PACKAGE/bin/prusa-slicer"
+          ln -s prusa-slicer "stage/$PACKAGE/bin/prusa-gcodeviewer"
+          cp -R resources/. "stage/$PACKAGE/resources/"
           test -x "stage/$PACKAGE/bin/prusa-slicer"
           test -L "stage/$PACKAGE/bin/prusa-gcodeviewer"
           test -d "stage/$PACKAGE/resources"
@@ -233,6 +235,7 @@ jobs:
             -DSLIC3R_STATIC=ON `
             -DSLIC3R_PCH=OFF `
             -DSLIC3R_BUILD_TESTS=ON `
+            -DCMAKE_CONFIGURATION_TYPES=Release `
             -DCMAKE_POLICY_VERSION_MINIMUM=3.5 `
             -DCMAKE_PREFIX_PATH="$env:GITHUB_WORKSPACE/deps/build/destdir/usr/local"
 
@@ -300,7 +303,7 @@ jobs:
           ref: ${{ needs.metadata.outputs.source_sha }}
 
       - name: Install build prerequisites
-        run: brew install automake cmake gettext libtool m4 ninja texinfo zlib
+        run: brew install automake cmake gettext libpng libtool m4 ninja texinfo zlib
 
       - name: Record toolchain version
         id: toolchain
@@ -323,6 +326,7 @@ jobs:
 
       - name: Configure PrusaSlicer
         run: |
+          png_prefix=$(brew --prefix libpng)
           cmake -S . -B build -G Ninja \
             -DSLIC3R_BUILD_ID="${{ needs.metadata.outputs.build_id }}" \
             -DSLIC3R_STATIC=ON \
@@ -331,6 +335,8 @@ jobs:
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_OSX_DEPLOYMENT_TARGET=13.0 \
             -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+            -DPNG_LIBRARY="$png_prefix/lib/libpng.a" \
+            -DPNG_PNG_INCLUDE_DIR="$png_prefix/include" \
             -DCMAKE_PREFIX_PATH="$GITHUB_WORKSPACE/deps/build/destdir/usr/local"
 
       - name: Build application and MMU tests
