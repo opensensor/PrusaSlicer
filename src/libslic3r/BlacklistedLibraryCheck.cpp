@@ -5,6 +5,10 @@
 ///|/
 #include "BlacklistedLibraryCheck.hpp"
 
+#include <algorithm>
+#include <boost/filesystem/path.hpp>
+#include <boost/nowide/convert.hpp>
+
 #ifdef  WIN32
 #include <psapi.h>
 # endif //WIN32

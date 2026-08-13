@@ -26,6 +26,8 @@
 #include <float.h>
 #include <assert.h>
 
+#include <fstream>
+
 #if __has_include(<charconv>)
     #include <charconv>
     #include <utility>
@@ -5005,4 +5007,3 @@ float GCodeProcessor::calc_junction_acceleration(const TimeBlock &block, const V
 }
 
 } /* namespace Slic3r */
-
