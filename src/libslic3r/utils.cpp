@@ -8,6 +8,7 @@
 #include "I18N.hpp"
 
 #include <atomic>
+#include <fstream>
 #include <locale>
 #include <ctime>
 #include <cstdarg>

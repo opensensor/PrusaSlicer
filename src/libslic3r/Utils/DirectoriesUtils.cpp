@@ -3,6 +3,7 @@
 
 #include <boost/filesystem/path.hpp>
 #include <boost/log/trivial.hpp>
+#include <boost/nowide/convert.hpp>
 
 #if defined(_WIN32)
 
