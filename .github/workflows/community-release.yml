@@ -466,17 +466,17 @@ jobs:
           EOF
           )
 
-          if gh release view "$TAG" >/dev/null 2>&1; then
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             is_draft=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$TAG" --jq .draft)
             if [[ "$is_draft" != "true" ]]; then
               echo "Refusing to replace assets on an already-published release" >&2
               exit 1
             fi
-            gh release upload "$TAG" release-assets/* --clobber
+            gh release upload "$TAG" release-assets/* --clobber --repo "$GITHUB_REPOSITORY"
           else
             args=(--verify-tag --draft --title "PrusaSlicer Community $VERSION" --generate-notes --notes "$notes")
             if [[ "$PRERELEASE" == "true" ]]; then
               args+=(--prerelease)
             fi
-            gh release create "$TAG" release-assets/* "${args[@]}"
+            gh release create "$TAG" release-assets/* "${args[@]}" --repo "$GITHUB_REPOSITORY"
           fi

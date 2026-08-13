@@ -48,7 +48,7 @@ jobs:
           fi
 
           mkdir release-assets
-          gh release download "$TAG" --dir release-assets
+          gh release download "$TAG" --dir release-assets --repo "$GITHUB_REPOSITORY"
           test "$(find release-assets -maxdepth 1 -type f -name '*.tar.gz' | wc -l)" -eq 1
           test "$(find release-assets -maxdepth 1 -type f -name '*.zip' | wc -l)" -eq 1
           test "$(find release-assets -maxdepth 1 -type f -name '*.dmg' | wc -l)" -eq 1
@@ -72,5 +72,4 @@ jobs:
           else
             args+=(--latest=false)
           fi
-          gh release edit "$TAG" "${args[@]}"
-
+          gh release edit "$TAG" "${args[@]}" --repo "$GITHUB_REPOSITORY"
