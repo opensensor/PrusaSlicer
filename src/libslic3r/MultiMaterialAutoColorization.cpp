@@ -112,37 +112,43 @@ int assign_color_from_distribution(float normalized_value, const std::vector<int
     if (extruders.empty() || distribution.empty())
         return 0;
 
-    // Calculate cumulative distribution
+    // Collect the active extruders together with their cumulative share. Both vectors are built
+    // in the same pass so that cumulative_dist[i] always describes active_extruders[i]. Skipping
+    // slots in only one of them would shift the bands onto the wrong extruders.
+    std::vector<int> active_extruders;
     std::vector<float> cumulative_dist;
     float sum = 0.0f;
-    for (float d : distribution) {
-        if (d > 0.0f) {
-            sum += d;
-            cumulative_dist.push_back(sum);
-        }
+    int last_weighted_extruder = 0;
+    for (size_t i = 0; i < extruders.size(); ++i) {
+        if (extruders[i] <= 0)
+            continue;
+
+        // A disabled extruder must not consume any share of the distribution.
+        const float weight = (i < distribution.size()) ? std::max(0.0f, distribution[i]) : 0.0f;
+        if (weight > 0.0f)
+            last_weighted_extruder = extruders[i];
+
+        sum += weight;
+        active_extruders.push_back(extruders[i]);
+        cumulative_dist.push_back(sum);
     }
 
-    // Normalize cumulative distribution
-    if (sum > 0.0f) {
-        for (float& d : cumulative_dist)
-            d /= sum;
-    } else {
-        return extruders[0]; // Default to first extruder if all distributions are 0
-    }
+    if (active_extruders.empty())
+        return 0;
 
-    // Find the appropriate color based on the normalized value
+    if (sum <= 0.0f)
+        return active_extruders.front(); // Default to the first active extruder if all shares are 0
+
+    // Find the appropriate color based on the normalized value. Zero-width bands repeat the
+    // previous cumulative value, so they can never be selected.
+    normalized_value = std::clamp(normalized_value, 0.0f, 1.0f);
     for (size_t i = 0; i < cumulative_dist.size(); ++i) {
-        if (normalized_value < cumulative_dist[i] && extruders[i] > 0)
-            return extruders[i];
+        if (normalized_value < cumulative_dist[i] / sum)
+            return active_extruders[i];
     }
 
-    // Default to the last valid extruder
-    for (int i = static_cast<int>(extruders.size()) - 1; i >= 0; --i) {
-        if (extruders[i] > 0)
-            return extruders[i];
-    }
-
-    return 0; // Fallback
+    // normalized_value sits exactly on the upper bound, which belongs to the last band with width.
+    return last_weighted_extruder;
 }
 
 // Apply height gradient colorization
@@ -407,11 +413,22 @@ MMUAutoColorizationParams validate_auto_colorization_params(const MMUAutoColoriz
         validated.extruders[0] = 1; // Set first extruder as active if none are
     }
 
-    // Ensure distribution values are valid
+    // Keep both vectors the same length, so a slot's share always belongs to the extruder next to it.
+    validated.distribution.resize(validated.extruders.size(), 0.0f);
+
+    // Ensure distribution values are valid. Only the active extruders take a share, otherwise a
+    // disabled slot would keep consuming part of the model while painting nothing.
+    int active_count = 0;
     float total_distribution = 0.0f;
-    for (float& d : validated.distribution) {
-        d = std::max(0.0f, d); // Ensure non-negative
-        total_distribution += d;
+    for (size_t i = 0; i < validated.extruders.size(); ++i) {
+        if (validated.extruders[i] <= 0) {
+            validated.distribution[i] = 0.0f;
+            continue;
+        }
+
+        ++active_count;
+        validated.distribution[i] = std::max(0.0f, validated.distribution[i]); // Ensure non-negative
+        total_distribution += validated.distribution[i];
     }
 
     // Normalize distribution if needed
@@ -419,18 +436,11 @@ MMUAutoColorizationParams validate_auto_colorization_params(const MMUAutoColoriz
         for (float& d : validated.distribution) {
             d = (d / total_distribution) * 100.0f;
         }
-    } else if (!validated.distribution.empty()) {
+    } else if (active_count > 0) {
         // If all distributions are 0, set equal distribution for active extruders
-        int active_count = 0;
-        for (int e : validated.extruders) {
-            if (e > 0) active_count++;
-        }
-
-        if (active_count > 0) {
-            float equal_value = 100.0f / active_count;
-            for (size_t i = 0; i < validated.extruders.size() && i < validated.distribution.size(); ++i) {
-                validated.distribution[i] = (validated.extruders[i] > 0) ? equal_value : 0.0f;
-            }
+        const float equal_value = 100.0f / float(active_count);
+        for (size_t i = 0; i < validated.extruders.size(); ++i) {
+            validated.distribution[i] = (validated.extruders[i] > 0) ? equal_value : 0.0f;
         }
     }
 

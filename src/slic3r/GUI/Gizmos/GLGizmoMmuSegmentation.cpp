@@ -107,6 +107,40 @@ void GLGizmoMmuSegmentation::init_extruders_data()
     m_modified_extruders_colors    = m_original_extruders_colors;
     m_first_selected_extruder_idx  = 0;
     m_second_selected_extruder_idx = 1;
+
+    init_auto_colorization_extruders();
+}
+
+// The auto-colorization panel offers one slot per extruder known to the painting gizmo (physical
+// and virtual ones). on_init() runs only once, on the first render of the 3D canvas, so the slots
+// have to be rebuilt from init_extruders_data() instead - otherwise they stay frozen at whatever
+// printer happened to be selected at start-up and the panel offers the wrong extruders.
+void GLGizmoMmuSegmentation::init_auto_colorization_extruders()
+{
+    const size_t extruders_cnt = std::min(size_t(EXTRUDERS_LIMIT), m_original_extruders_names.size());
+    const size_t prev_cnt      = std::min({m_auto_colorize_params.extruders.size(),
+                                           m_auto_colorize_params.distribution.size(), extruders_cnt});
+
+    std::vector<int>   extruders(extruders_cnt, 0);
+    std::vector<float> distribution(extruders_cnt, 0.f);
+
+    // Carry over the slots the user has already configured, drop the ones that no longer exist.
+    for (size_t idx = 0; idx < prev_cnt; ++idx) {
+        extruders[idx]    = m_auto_colorize_params.extruders[idx] > 0 ? int(idx + 1) : 0;
+        distribution[idx] = m_auto_colorize_params.distribution[idx];
+    }
+
+    // Nothing usable carried over, fall back to an even split between the first two extruders.
+    if (std::none_of(extruders.begin(), extruders.end(), [](int extruder) { return extruder > 0; })) {
+        const size_t default_cnt = std::min(size_t(2), extruders_cnt);
+        for (size_t idx = 0; idx < default_cnt; ++idx) {
+            extruders[idx]    = int(idx + 1);
+            distribution[idx] = 100.f / float(default_cnt);
+        }
+    }
+
+    m_auto_colorize_params.extruders    = std::move(extruders);
+    m_auto_colorize_params.distribution = std::move(distribution);
 }
 
 bool GLGizmoMmuSegmentation::on_init()
@@ -171,17 +205,8 @@ bool GLGizmoMmuSegmentation::on_init()
     m_desc["extruder_use"]         = _u8L("Use extruder");
     m_desc["distribution"]         = _u8L("Distribution") + " %";
 
+    // Also seeds the auto-colorization extruder slots.
     init_extruders_data();
-
-    // Initialize auto-colorization parameters
-    m_auto_colorize_params.extruders.resize(std::min(size_t(5), m_original_extruders_names.size()));
-    m_auto_colorize_params.distribution.resize(std::min(size_t(5), m_original_extruders_names.size()));
-
-    // Set default values for extruders (first two enabled)
-    for (size_t i = 0; i < m_auto_colorize_params.extruders.size(); ++i) {
-        m_auto_colorize_params.extruders[i] = (i < 2) ? int(i + 1) : 0;
-        m_auto_colorize_params.distribution[i] = (i < 2) ? 50.0f : 0.0f;
-    }
 
     return true;
 }
@@ -924,7 +949,9 @@ void GLGizmoMmuSegmentation::preview_auto_colorization()
         ++idx;
         if (idx < int(preview_selectors.size())) {
             // Copy the preview selector data to the actual selector
-            m_triangle_selectors[idx]->deserialize(preview_selectors[idx]->serialize(), false);
+            // Unlike in init_model_triangle_selectors(), these selectors already hold state from
+            // painting or from an earlier preview, so they have to be reset before deserializing.
+            m_triangle_selectors[idx]->deserialize(preview_selectors[idx]->serialize(), true);
             m_triangle_selectors[idx]->request_update_render_data();
         }
     }
