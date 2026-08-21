@@ -154,8 +154,13 @@ private:
     std::map<std::string, std::string> m_desc;
 
     // Auto-colorization related members
-    bool m_show_auto_colorize = false;
-    MMUAutoColorizationParams m_auto_colorize_params;
+    MMUAutoColorizationParams m_auto_colorization_params;
+    // Re-runs the preview as soon as a control settles, instead of waiting for the Preview button.
+    bool                      m_auto_colorization_live_preview = false;
+    bool                      m_auto_colorization_dirty        = false;
+    // Kept next to the decoded image, so that a preset can pull the same file back in.
+    std::string               m_auto_colorization_image_path;
+    std::string               m_auto_colorization_preset_name;
 
     // Preview auto-colorization without applying it
     void preview_auto_colorization();
@@ -164,7 +169,18 @@ private:
     void apply_auto_colorization();
 
     // Render the auto-colorization UI section
-    void render_auto_colorization_ui(float x, float y, float bottom_limit, float window_width);
+    void render_auto_colorization_ui(float window_width);
+    void render_auto_colorization_extruders(float window_width);
+    void render_auto_colorization_pattern_params(float window_width);
+    void render_auto_colorization_presets(float window_width);
+
+    // Decode an image file into the greyscale buffer the image projection pattern samples.
+    bool load_auto_colorization_image(const std::string& path);
+
+    std::vector<std::string> auto_colorization_preset_names() const;
+    void save_auto_colorization_preset(const std::string& name);
+    void load_auto_colorization_preset(const std::string& name);
+    void delete_auto_colorization_preset(const std::string& name);
 };
 
 } // namespace Slic3r
