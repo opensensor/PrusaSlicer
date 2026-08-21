@@ -236,3 +236,93 @@ SCENARIO("MMU Auto-Colorization Direct Application", "[MMUAutoColorization]") {
         }
     }
 }
+
+SCENARIO("MMU Auto-Colorization Color Assignment With Disabled Extruders", "[MMUAutoColorization]") {
+    GIVEN("Active extruders that do not start at the first slot") {
+        std::vector<int> extruders = {0, 2, 3, 0, 0};
+        std::vector<float> distribution = {0.0f, 50.0f, 50.0f, 0.0f, 0.0f};
+
+        WHEN("Assigning colors based on normalized values") {
+            THEN("Each band maps onto the extruder that owns it") {
+                REQUIRE(assign_color_from_distribution(0.0f, extruders, distribution) == 2);
+                REQUIRE(assign_color_from_distribution(0.49f, extruders, distribution) == 2);
+                REQUIRE(assign_color_from_distribution(0.5f, extruders, distribution) == 3);
+                REQUIRE(assign_color_from_distribution(1.0f, extruders, distribution) == 3);
+            }
+        }
+    }
+
+    GIVEN("Active extruders separated by a disabled slot") {
+        std::vector<int> extruders = {1, 0, 3, 0, 0};
+        std::vector<float> distribution = {50.0f, 0.0f, 50.0f, 0.0f, 0.0f};
+
+        WHEN("Assigning colors based on normalized values") {
+            THEN("The gap does not shift the bands") {
+                REQUIRE(assign_color_from_distribution(0.25f, extruders, distribution) == 1);
+                REQUIRE(assign_color_from_distribution(0.75f, extruders, distribution) == 3);
+            }
+        }
+    }
+
+    GIVEN("A disabled extruder that still carries a share") {
+        std::vector<int> extruders = {1, 0, 3};
+        std::vector<float> distribution = {25.0f, 50.0f, 25.0f};
+
+        WHEN("Assigning colors based on normalized values") {
+            THEN("The disabled share is ignored instead of consuming the model") {
+                REQUIRE(assign_color_from_distribution(0.4f, extruders, distribution) == 1);
+                REQUIRE(assign_color_from_distribution(0.6f, extruders, distribution) == 3);
+            }
+        }
+
+        WHEN("Validating parameters") {
+            MMUAutoColorizationParams params;
+            params.extruders = extruders;
+            params.distribution = distribution;
+            MMUAutoColorizationParams validated = validate_auto_colorization_params(params);
+
+            THEN("The disabled slot is cleared and the rest is renormalized") {
+                REQUIRE(validated.distribution.size() == validated.extruders.size());
+                REQUIRE(validated.distribution[0] == Catch::Approx(50.0f).epsilon(0.01f));
+                REQUIRE(validated.distribution[1] == 0.0f);
+                REQUIRE(validated.distribution[2] == Catch::Approx(50.0f).epsilon(0.01f));
+            }
+        }
+    }
+
+    GIVEN("Fewer distribution entries than extruders") {
+        MMUAutoColorizationParams params;
+        params.extruders = {1, 2, 3};
+        params.distribution = {50.0f};
+
+        WHEN("Validating parameters") {
+            MMUAutoColorizationParams validated = validate_auto_colorization_params(params);
+
+            THEN("The distribution is padded to match the extruders") {
+                REQUIRE(validated.distribution.size() == validated.extruders.size());
+                REQUIRE(validated.distribution[0] == Catch::Approx(100.0f).epsilon(0.01f));
+            }
+        }
+    }
+}
+
+SCENARIO("MMU Auto-Colorization Paints Every Active Extruder", "[MMUAutoColorization]") {
+    GIVEN("A cube colorized with a disabled slot between two active extruders") {
+        auto model = create_test_cube_model();
+        ModelObject* obj = model->objects[0];
+        MMUAutoColorizationParams params;
+        params.pattern_type = MMUAutoColorizationPattern::HeightGradient;
+        params.extruders = {1, 0, 3, 0, 0};
+        params.distribution = {50.0f, 0.0f, 50.0f, 0.0f, 0.0f};
+
+        WHEN("Generating the colorization preview") {
+            auto selectors = preview_auto_colorization(*obj, params);
+
+            THEN("Both active extruders end up on the model") {
+                REQUIRE(selectors.size() == obj->volumes.size());
+                REQUIRE(selectors[0]->has_facets(TriangleStateType::Extruder1));
+                REQUIRE(selectors[0]->has_facets(TriangleStateType::Extruder3));
+            }
+        }
+    }
+}

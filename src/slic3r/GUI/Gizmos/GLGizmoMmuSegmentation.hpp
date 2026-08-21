@@ -147,6 +147,7 @@ private:
 
     void init_model_triangle_selectors();
     void init_extruders_data();
+    void init_auto_colorization_extruders();
 
     // This map holds all translated description texts, so they can be easily referenced during layout calculations
     // etc. When language changes, GUI is recreated and this class constructed again, so the change takes effect.
