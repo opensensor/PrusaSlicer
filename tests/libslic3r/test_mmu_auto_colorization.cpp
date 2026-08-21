@@ -326,3 +326,200 @@ SCENARIO("MMU Auto-Colorization Paints Every Active Extruder", "[MMUAutoColoriza
         }
     }
 }
+
+// Two cubes stacked on top of each other, as a single object made of two model parts.
+std::unique_ptr<Model> create_stacked_cubes_model(double size = 20.0) {
+    auto model = std::make_unique<Model>();
+    ModelObject* obj = model->add_object();
+
+    TriangleMesh lower_mesh = make_cube(size, size, size);
+    obj->add_volume(std::move(lower_mesh))->set_type(ModelVolumeType::MODEL_PART);
+
+    TriangleMesh upper_mesh = make_cube(size, size, size);
+    upper_mesh.translate(0.f, 0.f, float(size));
+    obj->add_volume(std::move(upper_mesh))->set_type(ModelVolumeType::MODEL_PART);
+
+    return model;
+}
+
+SCENARIO("MMU Auto-Colorization Spans The Whole Object", "[MMUAutoColorization]") {
+    GIVEN("An object built from two stacked parts") {
+        auto model = create_stacked_cubes_model();
+        ModelObject* obj = model->objects[0];
+        MMUAutoColorizationParams params;
+        params.pattern_type = MMUAutoColorizationPattern::HeightGradient;
+        params.extruders = {1, 2, 0, 0, 0};
+        params.distribution = {50.0f, 50.0f, 0.0f, 0.0f, 0.0f};
+
+        WHEN("Applying a height gradient") {
+            auto selectors = preview_auto_colorization(*obj, params);
+
+            THEN("The gradient runs across the object instead of restarting in each part") {
+                REQUIRE(selectors.size() == 2);
+                // The lower half of the object belongs to the first extruder.
+                REQUIRE(selectors[0]->has_facets(TriangleStateType::Extruder1));
+                // The upper part sits entirely above the boundary, so it must not use the first
+                // extruder at all - it would if the gradient was measured per part.
+                REQUIRE(!selectors[1]->has_facets(TriangleStateType::Extruder1));
+                REQUIRE(selectors[1]->has_facets(TriangleStateType::Extruder2));
+            }
+        }
+
+        WHEN("Coloring per part") {
+            params.pattern_type = MMUAutoColorizationPattern::PerVolume;
+            auto selectors = preview_auto_colorization(*obj, params);
+
+            THEN("Each part gets its own extruder") {
+                REQUIRE(selectors.size() == 2);
+                REQUIRE(selectors[0]->has_facets(TriangleStateType::Extruder1));
+                REQUIRE(!selectors[0]->has_facets(TriangleStateType::Extruder2));
+                REQUIRE(!selectors[1]->has_facets(TriangleStateType::Extruder1));
+                REQUIRE(selectors[1]->has_facets(TriangleStateType::Extruder2));
+            }
+        }
+    }
+}
+
+SCENARIO("MMU Auto-Colorization Every Pattern Paints", "[MMUAutoColorization]") {
+    GIVEN("A simple cube model") {
+        auto model = create_test_cube_model();
+        ModelObject* obj = model->objects[0];
+
+        WHEN("Running every pattern in turn") {
+            THEN("Each one produces a selector and names itself") {
+                for (int pattern = 0; pattern < int(MMUAutoColorizationPattern::Count); ++pattern) {
+                    MMUAutoColorizationParams params;
+                    params.pattern_type = static_cast<MMUAutoColorizationPattern>(pattern);
+                    params.extruders = {1, 2, 0, 0, 0};
+                    params.distribution = {50.0f, 50.0f, 0.0f, 0.0f, 0.0f};
+
+                    CAPTURE(pattern);
+                    auto selectors = preview_auto_colorization(*obj, params);
+                    REQUIRE(selectors.size() == obj->volumes.size());
+                    REQUIRE((selectors[0]->has_facets(TriangleStateType::Extruder1) ||
+                             selectors[0]->has_facets(TriangleStateType::Extruder2)));
+
+                    // The GUI builds its pattern list from these names, so a missing case would
+                    // silently shift every following entry of the combo box.
+                    const char* name = auto_colorization_pattern_name(params.pattern_type);
+                    REQUIRE(name != nullptr);
+                    REQUIRE(std::string(name).length() > 0);
+                }
+            }
+        }
+    }
+}
+
+SCENARIO("MMU Auto-Colorization Surface And Image Patterns", "[MMUAutoColorization]") {
+    GIVEN("A simple cube model") {
+        auto model = create_test_cube_model();
+        ModelObject* obj = model->objects[0];
+        MMUAutoColorizationParams params;
+        params.extruders = {1, 2, 0, 0, 0};
+        params.distribution = {50.0f, 50.0f, 0.0f, 0.0f, 0.0f};
+
+        WHEN("Coloring by surface slope") {
+            params.pattern_type = MMUAutoColorizationPattern::SlopeAngle;
+            auto selectors = preview_auto_colorization(*obj, params);
+
+            THEN("The upward and downward faces of the cube end up apart") {
+                REQUIRE(selectors[0]->has_facets(TriangleStateType::Extruder1));
+                REQUIRE(selectors[0]->has_facets(TriangleStateType::Extruder2));
+            }
+        }
+
+        WHEN("Projecting a dark to light image") {
+            auto image = std::make_shared<MMUAutoColorizationImage>();
+            image->width = 2;
+            image->height = 1;
+            image->luminance = {0.0f, 1.0f};
+
+            params.pattern_type = MMUAutoColorizationPattern::ImageProjection;
+            params.projection = MMUAutoColorizationProjection::Planar;
+            params.image = image;
+            auto selectors = preview_auto_colorization(*obj, params);
+
+            THEN("Both ends of the image reach the model") {
+                REQUIRE(selectors[0]->has_facets(TriangleStateType::Extruder1));
+                REQUIRE(selectors[0]->has_facets(TriangleStateType::Extruder2));
+            }
+        }
+
+        WHEN("Projecting without an image") {
+            params.pattern_type = MMUAutoColorizationPattern::ImageProjection;
+            params.image.reset();
+
+            THEN("The pattern falls back to a single color instead of crashing") {
+                auto selectors = preview_auto_colorization(*obj, params);
+                REQUIRE(selectors.size() == obj->volumes.size());
+                REQUIRE(!selectors[0]->has_facets(TriangleStateType::Extruder2));
+            }
+        }
+    }
+}
+
+SCENARIO("MMU Auto-Colorization Dithering", "[MMUAutoColorization]") {
+    GIVEN("A cube split into two hard bands") {
+        auto model = create_test_cube_model();
+        ModelObject* obj = model->objects[0];
+        MMUAutoColorizationParams params;
+        params.pattern_type = MMUAutoColorizationPattern::HeightGradient;
+        params.extruders = {1, 2, 0, 0, 0};
+        params.distribution = {50.0f, 50.0f, 0.0f, 0.0f, 0.0f};
+
+        WHEN("Dithering is disabled") {
+            params.dither_width = 0.0f;
+
+            THEN("The assignment is a pure function of the position") {
+                REQUIRE(assign_color_from_distribution(0.1f, params.extruders, params.distribution) == 1);
+                REQUIRE(assign_color_from_distribution(0.9f, params.extruders, params.distribution) == 2);
+            }
+        }
+
+        WHEN("Dithering is enabled") {
+            params.dither_width = 0.5f;
+            auto selectors = preview_auto_colorization(*obj, params);
+
+            THEN("Both extruders still cover the model") {
+                REQUIRE(selectors[0]->has_facets(TriangleStateType::Extruder1));
+                REQUIRE(selectors[0]->has_facets(TriangleStateType::Extruder2));
+            }
+        }
+    }
+}
+
+SCENARIO("MMU Auto-Colorization Optimized Changes", "[MMUAutoColorization]") {
+    GIVEN("A cube with one band too short to be worth a tool change") {
+        auto model = create_test_cube_model(20.0);
+        ModelObject* obj = model->objects[0];
+        MMUAutoColorizationParams params;
+        params.pattern_type = MMUAutoColorizationPattern::OptimizedChanges;
+        params.extruders = {1, 2, 3, 0, 0};
+        // The middle band covers 1% of a 20 mm cube, so 0.2 mm.
+        params.distribution = {49.5f, 1.0f, 49.5f, 0.0f, 0.0f};
+        params.min_band_height = 2.0f;
+
+        WHEN("Applying the pattern") {
+            auto selectors = preview_auto_colorization(*obj, params);
+
+            THEN("The short band is merged away instead of costing two tool changes") {
+                REQUIRE(!selectors[0]->has_facets(TriangleStateType::Extruder2));
+                REQUIRE(selectors[0]->has_facets(TriangleStateType::Extruder1));
+                REQUIRE(selectors[0]->has_facets(TriangleStateType::Extruder3));
+            }
+        }
+
+        WHEN("The minimum band height is disabled") {
+            params.min_band_height = 0.0f;
+            // The bands have to be wide enough for the coarse cube to actually sample each one.
+            params.distribution = {30.0f, 40.0f, 30.0f, 0.0f, 0.0f};
+            auto selectors = preview_auto_colorization(*obj, params);
+
+            THEN("Every band keeps its own extruder") {
+                REQUIRE(selectors[0]->has_facets(TriangleStateType::Extruder1));
+                REQUIRE(selectors[0]->has_facets(TriangleStateType::Extruder2));
+                REQUIRE(selectors[0]->has_facets(TriangleStateType::Extruder3));
+            }
+        }
+    }
+}

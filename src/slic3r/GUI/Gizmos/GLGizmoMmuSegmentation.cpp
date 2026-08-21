@@ -16,9 +16,18 @@
 #include "slic3r/GUI/wxExtensions.hpp"
 #include "slic3r/GUI/NotificationManager.hpp"
 #include "slic3r/GUI/OpenGLManager.hpp"
+#include "libslic3r/AppConfig.hpp"
 #include "libslic3r/PresetBundle.hpp"
 #include "libslic3r/Model.hpp"
 #include "slic3r/Utils/UndoRedo.hpp"
+
+#include <cstring>
+#include <locale>
+#include <sstream>
+
+#include <wx/filedlg.h>
+#include <wx/image.h>
+#include <wx/log.h>
 
 
 #include <GL/glew.h>
@@ -118,16 +127,16 @@ void GLGizmoMmuSegmentation::init_extruders_data()
 void GLGizmoMmuSegmentation::init_auto_colorization_extruders()
 {
     const size_t extruders_cnt = std::min(size_t(EXTRUDERS_LIMIT), m_original_extruders_names.size());
-    const size_t prev_cnt      = std::min({m_auto_colorize_params.extruders.size(),
-                                           m_auto_colorize_params.distribution.size(), extruders_cnt});
+    const size_t prev_cnt      = std::min({m_auto_colorization_params.extruders.size(),
+                                           m_auto_colorization_params.distribution.size(), extruders_cnt});
 
     std::vector<int>   extruders(extruders_cnt, 0);
     std::vector<float> distribution(extruders_cnt, 0.f);
 
     // Carry over the slots the user has already configured, drop the ones that no longer exist.
     for (size_t idx = 0; idx < prev_cnt; ++idx) {
-        extruders[idx]    = m_auto_colorize_params.extruders[idx] > 0 ? int(idx + 1) : 0;
-        distribution[idx] = m_auto_colorize_params.distribution[idx];
+        extruders[idx]    = m_auto_colorization_params.extruders[idx] > 0 ? int(idx + 1) : 0;
+        distribution[idx] = m_auto_colorization_params.distribution[idx];
     }
 
     // Nothing usable carried over, fall back to an even split between the first two extruders.
@@ -139,8 +148,8 @@ void GLGizmoMmuSegmentation::init_auto_colorization_extruders()
         }
     }
 
-    m_auto_colorize_params.extruders    = std::move(extruders);
-    m_auto_colorize_params.distribution = std::move(distribution);
+    m_auto_colorization_params.extruders    = std::move(extruders);
+    m_auto_colorization_params.distribution = std::move(distribution);
 }
 
 bool GLGizmoMmuSegmentation::on_init()
@@ -181,29 +190,55 @@ bool GLGizmoMmuSegmentation::on_init()
 
     m_desc["height_range_z_range"] = _u8L("Height range");
 
-    // Auto-colorization related descriptions
+    // Auto-colorization related descriptions. The pattern names themselves come from libslic3r,
+    // so that adding a pattern there is enough to make it appear in the combo box below.
     m_desc["auto_colorize"]        = _u8L("Auto-colorize");
-    m_desc["auto_colorize_enable"] = _u8L("Enable auto-colorization");
-    m_desc["pattern_type"]         = _u8L("Pattern type");
-    m_desc["height_gradient"]      = _u8L("Height gradient");
-    m_desc["radial_gradient"]      = _u8L("Radial gradient");
-    m_desc["spiral_pattern"]       = _u8L("Spiral pattern");
-    m_desc["noise_pattern"]        = _u8L("Noise pattern");
-    m_desc["optimized_changes"]    = _u8L("Optimized changes");
+    m_desc["pattern_type"]         = _u8L("Pattern");
     m_desc["preview"]              = _u8L("Preview");
     m_desc["apply"]                = _u8L("Apply");
-    m_desc["height_start"]         = _u8L("Start height") + " %";
-    m_desc["height_end"]           = _u8L("End height") + " %";
-    m_desc["height_reverse"]       = _u8L("Reverse direction");
-    m_desc["radial_radius"]        = _u8L("Radius") + " " + _u8L("mm");
-    m_desc["radial_reverse"]       = _u8L("Reverse direction");
-    m_desc["spiral_pitch"]         = _u8L("Pitch") + " " + _u8L("mm");
-    m_desc["spiral_turns"]         = _u8L("Turns");
-    m_desc["spiral_reverse"]       = _u8L("Reverse direction");
-    m_desc["noise_scale"]          = _u8L("Scale");
-    m_desc["noise_seed"]           = _u8L("Seed");
+    m_desc["live_preview"]         = _u8L("Live preview");
     m_desc["extruder_use"]         = _u8L("Use extruder");
     m_desc["distribution"]         = _u8L("Distribution") + " %";
+    m_desc["even_distribution"]    = _u8L("Distribute evenly");
+    m_desc["reverse"]              = _u8L("Reverse direction");
+    m_desc["dither"]               = _u8L("Blend width");
+    m_desc["axis"]                 = _u8L("Axis");
+    m_desc["axis_custom"]          = _u8L("Custom axis");
+    m_desc["center_custom"]        = _u8L("Custom center");
+    m_desc["center"]               = _u8L("Center");
+    m_desc["height_start"]         = _u8L("Start") + " %";
+    m_desc["height_end"]           = _u8L("End") + " %";
+    m_desc["radial_radius"]        = _u8L("Radius") + " " + _u8L("mm");
+    m_desc["spiral_pitch"]         = _u8L("Pitch") + " " + _u8L("mm");
+    m_desc["spiral_turns"]         = _u8L("Turns");
+    m_desc["angular_start"]        = _u8L("Start angle");
+    m_desc["period"]               = _u8L("Period") + " " + _u8L("mm");
+    m_desc["noise_scale"]          = _u8L("Scale");
+    m_desc["noise_seed"]           = _u8L("Seed");
+    m_desc["noise_threshold"]      = _u8L("Threshold");
+    m_desc["octaves"]              = _u8L("Octaves");
+    m_desc["persistence"]          = _u8L("Persistence");
+    m_desc["distortion"]           = _u8L("Distortion");
+    m_desc["cell_size"]            = _u8L("Cell size") + " " + _u8L("mm");
+    m_desc["slope_min"]            = _u8L("Min angle");
+    m_desc["slope_max"]            = _u8L("Max angle");
+    m_desc["curvature_scale"]      = _u8L("Curvature range");
+    m_desc["min_band_height"]      = _u8L("Min band height") + " " + _u8L("mm");
+    m_desc["image_load"]           = _u8L("Load image");
+    m_desc["image_clear"]          = _u8L("Clear image");
+    m_desc["image_none"]           = _u8L("No image loaded");
+    m_desc["projection"]           = _u8L("Projection");
+    m_desc["projection_planar"]    = _u8L("Planar");
+    m_desc["projection_cylinder"]  = _u8L("Cylindrical");
+    m_desc["projection_sphere"]    = _u8L("Spherical");
+    m_desc["image_scale"]          = _u8L("Image scale");
+    m_desc["image_rotation"]       = _u8L("Image rotation");
+    m_desc["image_invert"]         = _u8L("Invert image");
+    m_desc["presets"]              = _u8L("Presets");
+    m_desc["preset_save"]          = _u8L("Save");
+    m_desc["preset_load"]          = _u8L("Load");
+    m_desc["preset_delete"]        = _u8L("Delete");
+    m_desc["randomize"]            = _u8L("Randomize");
 
     // Also seeds the auto-colorization extruder slots.
     init_extruders_data();
@@ -624,7 +659,7 @@ void GLGizmoMmuSegmentation::on_render_input_window(float x, float y, float bott
 
     // Add auto-colorization section
     if (ImGui::CollapsingHeader(m_desc.at("auto_colorize").c_str(), ImGuiTreeNodeFlags_DefaultOpen)) {
-        render_auto_colorization_ui(x, y, bottom_limit, ImGui::GetContentRegionAvail().x);
+        render_auto_colorization_ui(ImGui::GetContentRegionAvail().x);
     }
 
     ImGui::Separator();
@@ -933,12 +968,11 @@ void GLGizmoMmuSegmentation::preview_auto_colorization()
     if (!mo)
         return;
 
-    // Take a snapshot for undo/redo
-    Plater::TakeSnapshot snapshot(wxGetApp().plater(), _L("Preview auto-colorization"),
-                                  UndoRedo::SnapshotType::GizmoAction);
+    // No undo snapshot here on purpose. The preview only touches the gizmo's own selectors, the
+    // model is left alone until Apply, and snapshotting every live preview would flood undo/redo.
 
     // Generate a preview of the auto-colorization
-    auto preview_selectors = Slic3r::preview_auto_colorization(*mo, m_auto_colorize_params);
+    auto preview_selectors = Slic3r::preview_auto_colorization(*mo, m_auto_colorization_params);
 
     // Apply the preview to the triangle selectors
     int idx = -1;
@@ -972,7 +1006,7 @@ void GLGizmoMmuSegmentation::apply_auto_colorization()
                                   UndoRedo::SnapshotType::GizmoAction);
 
     // Apply the auto-colorization to the model object
-    Slic3r::apply_auto_colorization(*mo, m_auto_colorize_params);
+    Slic3r::apply_auto_colorization(*mo, m_auto_colorization_params);
 
     // Update the triangle selectors from the model
     update_from_model_object();
@@ -982,157 +1016,650 @@ void GLGizmoMmuSegmentation::apply_auto_colorization()
     m_parent.post_event(SimpleEvent(EVT_GLCANVAS_SCHEDULE_BACKGROUND_PROCESS));
 }
 
-// Render the auto-colorization UI section
-void GLGizmoMmuSegmentation::render_auto_colorization_ui(float x, float y, float bottom_limit, float window_width)
+// The pattern list is built from libslic3r, so that adding a pattern there is enough to make it
+// selectable here and the combo indices can never drift out of sync with the enum.
+static std::vector<std::string> auto_colorization_pattern_labels()
 {
-    const float max_tooltip_width = ImGui::GetFontSize() * 20.0f;
+    std::vector<std::string> labels;
+    labels.reserve(size_t(MMUAutoColorizationPattern::Count));
+    for (int pattern = 0; pattern < int(MMUAutoColorizationPattern::Count); ++pattern)
+        labels.emplace_back(_u8L(auto_colorization_pattern_name(static_cast<MMUAutoColorizationPattern>(pattern))));
 
-    // Pattern type selection
-    ImGui::AlignTextToFramePadding();
-    ImGuiPureWrap::text(m_desc.at("pattern_type"));
-    ImGui::SameLine();
-    ImGui::PushItemWidth(window_width * 0.7f);
+    return labels;
+}
 
-    // Create a combo box for pattern selection
-    const char* pattern_items[] = {
-        m_desc.at("height_gradient").c_str(),
-        m_desc.at("radial_gradient").c_str(),
-        m_desc.at("spiral_pattern").c_str(),
-        m_desc.at("noise_pattern").c_str(),
-        m_desc.at("optimized_changes").c_str()
+static const constexpr char *AUTO_COLORIZATION_PRESET_SECTION = "mmu_auto_colorization_presets";
+
+static std::string serialize_auto_colorization_params(const MMUAutoColorizationParams &params, const std::string &image_path)
+{
+    std::ostringstream out;
+    // The presets end up in the application config, which is read back on any machine locale.
+    out.imbue(std::locale::classic());
+
+    out << "pattern=" << int(params.pattern_type);
+    out << ";axis=" << int(params.axis);
+    out << ";custom_axis=" << params.custom_axis.x() << "," << params.custom_axis.y() << "," << params.custom_axis.z();
+    out << ";use_custom_center=" << (params.use_custom_center ? 1 : 0);
+    out << ";custom_center=" << params.custom_center.x() << "," << params.custom_center.y() << "," << params.custom_center.z();
+    out << ";dither=" << params.dither_width;
+    out << ";reverse=" << (params.reverse ? 1 : 0);
+    out << ";height_start=" << params.height_start_percent;
+    out << ";height_end=" << params.height_end_percent;
+    out << ";radius=" << params.radial_radius;
+    out << ";spiral_pitch=" << params.spiral_pitch;
+    out << ";spiral_turns=" << params.spiral_turns;
+    out << ";angular_start=" << params.angular_start_deg;
+    out << ";period=" << params.period;
+    out << ";noise_scale=" << params.noise_scale;
+    out << ";noise_threshold=" << params.noise_threshold;
+    out << ";noise_seed=" << params.noise_seed;
+    out << ";octaves=" << params.octaves;
+    out << ";persistence=" << params.persistence;
+    out << ";distortion=" << params.distortion;
+    out << ";cell_size=" << params.cell_size;
+    out << ";slope_min=" << params.slope_min_deg;
+    out << ";slope_max=" << params.slope_max_deg;
+    out << ";curvature=" << params.curvature_scale;
+    out << ";projection=" << int(params.projection);
+    out << ";image_scale=" << params.image_scale;
+    out << ";image_rotation=" << params.image_rotation_deg;
+    out << ";image_invert=" << (params.image_invert ? 1 : 0);
+    out << ";min_band_height=" << params.min_band_height;
+
+    out << ";extruders=";
+    for (size_t i = 0; i < params.extruders.size(); ++i)
+        out << (i == 0 ? "" : ",") << params.extruders[i];
+
+    out << ";distribution=";
+    for (size_t i = 0; i < params.distribution.size(); ++i)
+        out << (i == 0 ? "" : ",") << params.distribution[i];
+
+    // The image itself is not stored, only where it came from.
+    out << ";image_path=" << image_path;
+
+    return out.str();
+}
+
+static void deserialize_auto_colorization_params(const std::string &data, MMUAutoColorizationParams &params, std::string &image_path)
+{
+    const auto to_float = [](const std::string &value, float fallback) {
+        std::istringstream in(value);
+        in.imbue(std::locale::classic());
+        float parsed = 0.f;
+        return (in >> parsed) ? parsed : fallback;
+    };
+    const auto to_int = [](const std::string &value, int fallback) {
+        std::istringstream in(value);
+        in.imbue(std::locale::classic());
+        int parsed = 0;
+        return (in >> parsed) ? parsed : fallback;
+    };
+    const auto split = [](const std::string &value) {
+        std::vector<std::string> parts;
+        std::istringstream in(value);
+        std::string item;
+        while (std::getline(in, item, ','))
+            parts.push_back(item);
+        return parts;
     };
 
-    int current_pattern = static_cast<int>(m_auto_colorize_params.pattern_type);
-    if (ImGui::Combo("##pattern_type", &current_pattern, pattern_items, IM_ARRAYSIZE(pattern_items))) {
-        m_auto_colorize_params.pattern_type = static_cast<MMUAutoColorizationPattern>(current_pattern);
+    std::istringstream entries(data);
+    std::string entry;
+    while (std::getline(entries, entry, ';')) {
+        const size_t separator = entry.find('=');
+        if (separator == std::string::npos)
+            continue;
+
+        const std::string key   = entry.substr(0, separator);
+        const std::string value = entry.substr(separator + 1);
+
+        if (key == "pattern") {
+            const int pattern = to_int(value, 0);
+            if (pattern >= 0 && pattern < int(MMUAutoColorizationPattern::Count))
+                params.pattern_type = static_cast<MMUAutoColorizationPattern>(pattern);
+        } else if (key == "axis") {
+            const int axis = to_int(value, int(MMUAutoColorizationAxis::Z));
+            if (axis >= 0 && axis < int(MMUAutoColorizationAxis::Count))
+                params.axis = static_cast<MMUAutoColorizationAxis>(axis);
+        } else if (key == "projection") {
+            const int projection = to_int(value, int(MMUAutoColorizationProjection::Planar));
+            if (projection >= 0 && projection < int(MMUAutoColorizationProjection::Count))
+                params.projection = static_cast<MMUAutoColorizationProjection>(projection);
+        } else if (key == "custom_axis" || key == "custom_center") {
+            const std::vector<std::string> parts = split(value);
+            if (parts.size() == 3) {
+                const Vec3f vector(to_float(parts[0], 0.f), to_float(parts[1], 0.f), to_float(parts[2], 0.f));
+                if (key == "custom_axis")
+                    params.custom_axis = vector;
+                else
+                    params.custom_center = vector;
+            }
+        } else if (key == "extruders") {
+            params.extruders.clear();
+            for (const std::string &part : split(value))
+                params.extruders.push_back(to_int(part, 0));
+        } else if (key == "distribution") {
+            params.distribution.clear();
+            for (const std::string &part : split(value))
+                params.distribution.push_back(to_float(part, 0.f));
+        } else if (key == "use_custom_center") {
+            params.use_custom_center = to_int(value, 0) != 0;
+        } else if (key == "reverse") {
+            params.reverse = to_int(value, 0) != 0;
+        } else if (key == "image_invert") {
+            params.image_invert = to_int(value, 0) != 0;
+        } else if (key == "dither") {
+            params.dither_width = to_float(value, params.dither_width);
+        } else if (key == "height_start") {
+            params.height_start_percent = to_float(value, params.height_start_percent);
+        } else if (key == "height_end") {
+            params.height_end_percent = to_float(value, params.height_end_percent);
+        } else if (key == "radius") {
+            params.radial_radius = to_float(value, params.radial_radius);
+        } else if (key == "spiral_pitch") {
+            params.spiral_pitch = to_float(value, params.spiral_pitch);
+        } else if (key == "spiral_turns") {
+            params.spiral_turns = to_int(value, params.spiral_turns);
+        } else if (key == "angular_start") {
+            params.angular_start_deg = to_float(value, params.angular_start_deg);
+        } else if (key == "period") {
+            params.period = to_float(value, params.period);
+        } else if (key == "noise_scale") {
+            params.noise_scale = to_float(value, params.noise_scale);
+        } else if (key == "noise_threshold") {
+            params.noise_threshold = to_float(value, params.noise_threshold);
+        } else if (key == "noise_seed") {
+            params.noise_seed = to_int(value, params.noise_seed);
+        } else if (key == "octaves") {
+            params.octaves = to_int(value, params.octaves);
+        } else if (key == "persistence") {
+            params.persistence = to_float(value, params.persistence);
+        } else if (key == "distortion") {
+            params.distortion = to_float(value, params.distortion);
+        } else if (key == "cell_size") {
+            params.cell_size = to_float(value, params.cell_size);
+        } else if (key == "slope_min") {
+            params.slope_min_deg = to_float(value, params.slope_min_deg);
+        } else if (key == "slope_max") {
+            params.slope_max_deg = to_float(value, params.slope_max_deg);
+        } else if (key == "curvature") {
+            params.curvature_scale = to_float(value, params.curvature_scale);
+        } else if (key == "image_scale") {
+            params.image_scale = to_float(value, params.image_scale);
+        } else if (key == "image_rotation") {
+            params.image_rotation_deg = to_float(value, params.image_rotation_deg);
+        } else if (key == "min_band_height") {
+            params.min_band_height = to_float(value, params.min_band_height);
+        } else if (key == "image_path") {
+            image_path = value;
+        }
+    }
+}
+
+bool GLGizmoMmuSegmentation::load_auto_colorization_image(const std::string &path)
+{
+    if (path.empty())
+        return false;
+
+    wxImage image;
+    {
+        // A broken or unsupported file should not pop a wx error dialog in the middle of the gizmo.
+        wxLogNull no_log;
+        if (!image.LoadFile(from_u8(path)))
+            return false;
     }
 
-    ImGui::Separator();
+    if (!image.IsOk() || image.GetWidth() <= 0 || image.GetHeight() <= 0)
+        return false;
 
-    // Extruder selection and distribution
-    for (size_t i = 0; i < m_auto_colorize_params.extruders.size(); ++i) {
+    // The pattern only samples a luminance value per triangle, so a huge photo buys nothing but
+    // memory. Scale anything oversized down to a sane working resolution.
+    const int max_dimension = 1024;
+    if (image.GetWidth() > max_dimension || image.GetHeight() > max_dimension) {
+        const float ratio = float(max_dimension) / float(std::max(image.GetWidth(), image.GetHeight()));
+        image = image.Scale(std::max(1, int(float(image.GetWidth()) * ratio)),
+                            std::max(1, int(float(image.GetHeight()) * ratio)), wxIMAGE_QUALITY_HIGH);
+    }
+
+    auto decoded    = std::make_shared<MMUAutoColorizationImage>();
+    decoded->width  = image.GetWidth();
+    decoded->height = image.GetHeight();
+    decoded->luminance.resize(size_t(decoded->width) * size_t(decoded->height));
+
+    const unsigned char *rgb = image.GetData();
+    for (size_t pixel = 0; pixel < decoded->luminance.size(); ++pixel) {
+        const float r = float(rgb[pixel * 3 + 0]) / 255.f;
+        const float g = float(rgb[pixel * 3 + 1]) / 255.f;
+        const float b = float(rgb[pixel * 3 + 2]) / 255.f;
+        decoded->luminance[pixel] = 0.2126f * r + 0.7152f * g + 0.0722f * b;
+    }
+
+    m_auto_colorization_params.image = decoded;
+    m_auto_colorization_image_path   = path;
+    return true;
+}
+
+std::vector<std::string> GLGizmoMmuSegmentation::auto_colorization_preset_names() const
+{
+    std::vector<std::string> names;
+    const AppConfig *config = wxGetApp().app_config;
+    if (config == nullptr || !config->has_section(AUTO_COLORIZATION_PRESET_SECTION))
+        return names;
+
+    for (const auto &[name, value] : config->get_section(AUTO_COLORIZATION_PRESET_SECTION))
+        names.push_back(name);
+
+    return names;
+}
+
+void GLGizmoMmuSegmentation::save_auto_colorization_preset(const std::string &name)
+{
+    AppConfig *config = wxGetApp().app_config;
+    if (config == nullptr || name.empty())
+        return;
+
+    config->set(AUTO_COLORIZATION_PRESET_SECTION, name,
+                serialize_auto_colorization_params(m_auto_colorization_params, m_auto_colorization_image_path));
+}
+
+void GLGizmoMmuSegmentation::load_auto_colorization_preset(const std::string &name)
+{
+    const AppConfig *config = wxGetApp().app_config;
+    if (config == nullptr || name.empty() || !config->has(AUTO_COLORIZATION_PRESET_SECTION, name))
+        return;
+
+    std::string image_path;
+    deserialize_auto_colorization_params(config->get(AUTO_COLORIZATION_PRESET_SECTION, name),
+                                         m_auto_colorization_params, image_path);
+
+    // The extruder slots of the preset were saved for whichever printer was active back then, so
+    // they have to be folded back onto the extruders this printer actually has.
+    init_auto_colorization_extruders();
+
+    m_auto_colorization_params.image.reset();
+    m_auto_colorization_image_path.clear();
+    if (!image_path.empty())
+        load_auto_colorization_image(image_path);
+
+    m_auto_colorization_dirty = true;
+}
+
+void GLGizmoMmuSegmentation::delete_auto_colorization_preset(const std::string &name)
+{
+    AppConfig *config = wxGetApp().app_config;
+    if (config != nullptr && !name.empty())
+        config->erase(AUTO_COLORIZATION_PRESET_SECTION, name);
+}
+
+void GLGizmoMmuSegmentation::render_auto_colorization_extruders(float window_width)
+{
+    const float swatch  = ImGui::GetFrameHeight();
+    const size_t slots  = m_auto_colorization_params.extruders.size();
+
+    // Setups with many extruders would otherwise grow the panel until Preview and Apply fall off
+    // the bottom of the screen, so the list scrolls once it gets long.
+    const size_t max_visible_rows = 6;
+    const bool   scrolling        = slots > max_visible_rows;
+    if (scrolling)
+        ImGui::BeginChild("##acl_extruders", ImVec2(0.f, ImGui::GetFrameHeightWithSpacing() * float(max_visible_rows)), false);
+
+    for (size_t i = 0; i < slots && i < m_auto_colorization_params.distribution.size(); ++i) {
         ImGui::PushID(int(i));
 
+        if (i < m_modified_extruders_colors.size()) {
+            const ColorRGBA &color = m_modified_extruders_colors[i];
+            ImGui::ColorButton("##acl_color", ImVec4(color.r(), color.g(), color.b(), 1.f),
+                               ImGuiColorEditFlags_NoTooltip | ImGuiColorEditFlags_NoDragDrop, ImVec2(swatch, swatch));
+            ImGui::SameLine();
+        }
+
         // Checkbox to enable/disable this extruder
-        bool extruder_enabled = m_auto_colorize_params.extruders[i] > 0;
-        if (ImGui::Checkbox((m_desc.at("extruder_use") + " " + std::to_string(i + 1)).c_str(), &extruder_enabled)) {
-            m_auto_colorize_params.extruders[i] = extruder_enabled ? int(i + 1) : 0;
+        bool extruder_enabled = m_auto_colorization_params.extruders[i] > 0;
+        const std::string label = (i < m_original_extruders_names.size()) ? m_original_extruders_names[i]
+                                                                         : m_desc.at("extruder_use") + " " + std::to_string(i + 1);
+        if (ImGuiPureWrap::checkbox(label + "##acl_use", extruder_enabled)) {
+            m_auto_colorization_params.extruders[i] = extruder_enabled ? int(i + 1) : 0;
+            m_auto_colorization_dirty = true;
         }
 
         // Distribution slider (only show if extruder is enabled)
         if (extruder_enabled) {
-            ImGui::SameLine();
-            ImGui::PushItemWidth(window_width * 0.5f);
-            float distribution = m_auto_colorize_params.distribution[i];
-            if (m_imgui->slider_float(("##distribution" + std::to_string(i)).c_str(), &distribution, 0.0f, 100.0f, "%.1f%%")) {
-                m_auto_colorize_params.distribution[i] = distribution;
+            ImGui::SameLine(window_width * 0.5f);
+            ImGui::PushItemWidth(window_width * 0.4f);
+            float distribution = m_auto_colorization_params.distribution[i];
+            if (m_imgui->slider_float("##acl_distribution", &distribution, 0.0f, 100.0f, "%.1f%%")) {
+                m_auto_colorization_params.distribution[i] = distribution;
+                m_auto_colorization_dirty = true;
             }
         }
 
         ImGui::PopID();
     }
 
-    ImGui::Separator();
+    if (scrolling)
+        ImGui::EndChild();
 
-    // Pattern-specific parameters
-    switch (m_auto_colorize_params.pattern_type) {
-        case MMUAutoColorizationPattern::HeightGradient: {
-            // Start height
-            ImGui::AlignTextToFramePadding();
-            ImGuiPureWrap::text(m_desc.at("height_start"));
-            ImGui::SameLine();
-            ImGui::PushItemWidth(window_width * 0.5f);
-            m_imgui->slider_float("##height_start", &m_auto_colorize_params.height_start_percent, 0.0f, 100.0f, "%.1f%%");
+    if (ImGuiPureWrap::button(m_desc.at("even_distribution"))) {
+        // Zero shares make validate_auto_colorization_params() fall back to an even split.
+        std::fill(m_auto_colorization_params.distribution.begin(), m_auto_colorization_params.distribution.end(), 0.f);
+        m_auto_colorization_params = validate_auto_colorization_params(m_auto_colorization_params);
+        m_auto_colorization_dirty = true;
+    }
+}
 
-            // End height
-            ImGui::AlignTextToFramePadding();
-            ImGuiPureWrap::text(m_desc.at("height_end"));
-            ImGui::SameLine();
-            ImGui::PushItemWidth(window_width * 0.5f);
-            m_imgui->slider_float("##height_end", &m_auto_colorize_params.height_end_percent, 0.0f, 100.0f, "%.1f%%");
+void GLGizmoMmuSegmentation::render_auto_colorization_pattern_params(float window_width)
+{
+    const float label_width  = window_width * 0.45f;
+    const float widget_width = window_width * 0.45f;
 
-            // Reverse direction
-            ImGui::Checkbox(m_desc.at("height_reverse").c_str(), &m_auto_colorize_params.height_reverse);
-            break;
+    const auto slider = [this, label_width, widget_width](const std::string &label, const char *id, float *value,
+                                                          float min_value, float max_value, const char *format) {
+        ImGui::AlignTextToFramePadding();
+        ImGuiPureWrap::text(label);
+        ImGui::SameLine(label_width);
+        ImGui::PushItemWidth(widget_width);
+        if (m_imgui->slider_float(id, value, min_value, max_value, format))
+            m_auto_colorization_dirty = true;
+    };
+    const auto slider_int = [this, label_width, widget_width](const std::string &label, const char *id, int *value,
+                                                              int min_value, int max_value) {
+        ImGui::AlignTextToFramePadding();
+        ImGuiPureWrap::text(label);
+        ImGui::SameLine(label_width);
+        ImGui::PushItemWidth(widget_width);
+        if (ImGui::SliderInt(id, value, min_value, max_value))
+            m_auto_colorization_dirty = true;
+    };
+
+    MMUAutoColorizationParams &params = m_auto_colorization_params;
+
+    // Controls shared by whole families of patterns.
+    if (auto_colorization_pattern_uses_axis(params.pattern_type)) {
+        ImGui::AlignTextToFramePadding();
+        ImGuiPureWrap::text(m_desc.at("axis"));
+        ImGui::SameLine(label_width);
+        ImGui::PushItemWidth(widget_width);
+        const char *axis_items[] = {"X", "Y", "Z", nullptr};
+        const std::string custom = _u8L("Custom");
+        axis_items[3] = custom.c_str();
+        int axis = int(params.axis);
+        if (ImGui::Combo("##acl_axis", &axis, axis_items, IM_ARRAYSIZE(axis_items))) {
+            params.axis = static_cast<MMUAutoColorizationAxis>(axis);
+            m_auto_colorization_dirty = true;
         }
 
-        case MMUAutoColorizationPattern::RadialGradient: {
-            // Radius
+        if (params.axis == MMUAutoColorizationAxis::Custom) {
             ImGui::AlignTextToFramePadding();
-            ImGuiPureWrap::text(m_desc.at("radial_radius"));
-            ImGui::SameLine();
-            ImGui::PushItemWidth(window_width * 0.5f);
-            m_imgui->slider_float("##radial_radius", &m_auto_colorize_params.radial_radius, 1.0f, 200.0f, "%.1f");
+            ImGuiPureWrap::text(m_desc.at("axis_custom"));
+            ImGui::SameLine(label_width);
+            ImGui::PushItemWidth(widget_width);
+            if (ImGui::DragFloat3("##acl_axis_custom", params.custom_axis.data(), 0.01f, -1.f, 1.f, "%.2f"))
+                m_auto_colorization_dirty = true;
+        }
+    }
 
-            // Reverse direction
-            ImGui::Checkbox(m_desc.at("radial_reverse").c_str(), &m_auto_colorize_params.radial_reverse);
-            break;
+    if (auto_colorization_pattern_uses_center(params.pattern_type)) {
+        bool use_custom_center = params.use_custom_center;
+        if (ImGuiPureWrap::checkbox(m_desc.at("center_custom") + "##acl_center_custom", use_custom_center)) {
+            params.use_custom_center = use_custom_center;
+            m_auto_colorization_dirty = true;
         }
 
-        case MMUAutoColorizationPattern::SpiralPattern: {
-            // Pitch
+        if (params.use_custom_center) {
             ImGui::AlignTextToFramePadding();
-            ImGuiPureWrap::text(m_desc.at("spiral_pitch"));
-            ImGui::SameLine();
-            ImGui::PushItemWidth(window_width * 0.5f);
-            m_imgui->slider_float("##spiral_pitch", &m_auto_colorize_params.spiral_pitch, 1.0f, 50.0f, "%.1f");
+            ImGuiPureWrap::text(m_desc.at("center"));
+            ImGui::SameLine(label_width);
+            ImGui::PushItemWidth(widget_width);
+            if (ImGui::DragFloat3("##acl_center", params.custom_center.data(), 0.5f, -1000.f, 1000.f, "%.1f"))
+                m_auto_colorization_dirty = true;
+        }
+    }
 
-            // Turns
-            ImGui::AlignTextToFramePadding();
-            ImGuiPureWrap::text(m_desc.at("spiral_turns"));
+    // Controls specific to the selected pattern.
+    switch (params.pattern_type) {
+    case MMUAutoColorizationPattern::HeightGradient:
+    case MMUAutoColorizationPattern::LinearGradient:
+        slider(m_desc.at("height_start"), "##acl_height_start", &params.height_start_percent, 0.f, 100.f, "%.1f%%");
+        slider(m_desc.at("height_end"), "##acl_height_end", &params.height_end_percent, 0.f, 100.f, "%.1f%%");
+        break;
+
+    case MMUAutoColorizationPattern::RadialGradient:
+    case MMUAutoColorizationPattern::SphericalGradient:
+        slider(m_desc.at("radial_radius"), "##acl_radius", &params.radial_radius, 1.f, 200.f, "%.1f");
+        break;
+
+    case MMUAutoColorizationPattern::AngularSweep:
+        slider(m_desc.at("angular_start"), "##acl_angular_start", &params.angular_start_deg, 0.f, 360.f, "%.0f");
+        break;
+
+    case MMUAutoColorizationPattern::SpiralPattern:
+        slider(m_desc.at("spiral_pitch"), "##acl_spiral_pitch", &params.spiral_pitch, 1.f, 50.f, "%.1f");
+        slider_int(m_desc.at("spiral_turns"), "##acl_spiral_turns", &params.spiral_turns, 1, 20);
+        break;
+
+    case MMUAutoColorizationPattern::ConcentricRings:
+    case MMUAutoColorizationPattern::Stripes:
+    case MMUAutoColorizationPattern::Checkerboard:
+        slider(m_desc.at("period"), "##acl_period", &params.period, 0.5f, 100.f, "%.1f");
+        break;
+
+    case MMUAutoColorizationPattern::NoisePattern:
+        slider(m_desc.at("noise_scale"), "##acl_noise_scale", &params.noise_scale, 1.f, 50.f, "%.1f");
+        slider(m_desc.at("noise_threshold"), "##acl_noise_threshold", &params.noise_threshold, 0.f, 1.f, "%.2f");
+        slider_int(m_desc.at("noise_seed"), "##acl_noise_seed", &params.noise_seed, 1, 10000);
+        break;
+
+    case MMUAutoColorizationPattern::Turbulence:
+        slider(m_desc.at("noise_scale"), "##acl_noise_scale", &params.noise_scale, 1.f, 50.f, "%.1f");
+        slider(m_desc.at("noise_threshold"), "##acl_noise_threshold", &params.noise_threshold, 0.f, 1.f, "%.2f");
+        slider_int(m_desc.at("octaves"), "##acl_octaves", &params.octaves, 1, 8);
+        slider(m_desc.at("persistence"), "##acl_persistence", &params.persistence, 0.05f, 1.f, "%.2f");
+        slider_int(m_desc.at("noise_seed"), "##acl_noise_seed", &params.noise_seed, 1, 10000);
+        break;
+
+    case MMUAutoColorizationPattern::Voronoi:
+        slider(m_desc.at("cell_size"), "##acl_cell_size", &params.cell_size, 1.f, 100.f, "%.1f");
+        slider_int(m_desc.at("noise_seed"), "##acl_noise_seed", &params.noise_seed, 1, 10000);
+        break;
+
+    case MMUAutoColorizationPattern::MarbleGrain:
+    case MMUAutoColorizationPattern::WoodGrain:
+        slider(m_desc.at("period"), "##acl_period", &params.period, 0.5f, 100.f, "%.1f");
+        slider(m_desc.at("noise_scale"), "##acl_noise_scale", &params.noise_scale, 1.f, 50.f, "%.1f");
+        slider(m_desc.at("distortion"), "##acl_distortion", &params.distortion, 0.f, 5.f, "%.2f");
+        slider_int(m_desc.at("octaves"), "##acl_octaves", &params.octaves, 1, 8);
+        slider_int(m_desc.at("noise_seed"), "##acl_noise_seed", &params.noise_seed, 1, 10000);
+        break;
+
+    case MMUAutoColorizationPattern::SlopeAngle:
+        slider(m_desc.at("slope_min"), "##acl_slope_min", &params.slope_min_deg, 0.f, 180.f, "%.0f");
+        slider(m_desc.at("slope_max"), "##acl_slope_max", &params.slope_max_deg, 0.f, 180.f, "%.0f");
+        break;
+
+    case MMUAutoColorizationPattern::Curvature:
+        slider(m_desc.at("curvature_scale"), "##acl_curvature", &params.curvature_scale, 0.01f, 2.f, "%.2f");
+        break;
+
+    case MMUAutoColorizationPattern::ImageProjection: {
+        const size_t name_start = m_auto_colorization_image_path.find_last_of("/\\");
+        ImGuiPureWrap::text(m_auto_colorization_image_path.empty()
+                                ? m_desc.at("image_none")
+                                : m_auto_colorization_image_path.substr(name_start == std::string::npos ? 0 : name_start + 1));
+
+        if (ImGuiPureWrap::button(m_desc.at("image_load"))) {
+            wxFileDialog dialog(wxGetApp().plater(), _L("Select an image"), "", "",
+                                _L("Image files") + " (*.png;*.jpg;*.jpeg;*.bmp)|*.png;*.PNG;*.jpg;*.JPG;*.jpeg;*.JPEG;*.bmp;*.BMP",
+                                wxFD_OPEN | wxFD_FILE_MUST_EXIST);
+            if (dialog.ShowModal() == wxID_OK && load_auto_colorization_image(into_u8(dialog.GetPath())))
+                m_auto_colorization_dirty = true;
+        }
+
+        if (m_auto_colorization_params.image) {
             ImGui::SameLine();
-            ImGui::PushItemWidth(window_width * 0.5f);
-            int turns = m_auto_colorize_params.spiral_turns;
-            if (ImGui::SliderInt("##spiral_turns", &turns, 1, 20)) {
-                m_auto_colorize_params.spiral_turns = turns;
+            if (ImGuiPureWrap::button(m_desc.at("image_clear"))) {
+                m_auto_colorization_params.image.reset();
+                m_auto_colorization_image_path.clear();
+                m_auto_colorization_dirty = true;
             }
-
-            // Reverse direction
-            ImGui::Checkbox(m_desc.at("spiral_reverse").c_str(), &m_auto_colorize_params.spiral_reverse);
-            break;
         }
 
-        case MMUAutoColorizationPattern::NoisePattern: {
-            // Scale
-            ImGui::AlignTextToFramePadding();
-            ImGuiPureWrap::text(m_desc.at("noise_scale"));
-            ImGui::SameLine();
-            ImGui::PushItemWidth(window_width * 0.5f);
-            m_imgui->slider_float("##noise_scale", &m_auto_colorize_params.noise_scale, 1.0f, 50.0f, "%.1f");
-
-            // Seed
-            ImGui::AlignTextToFramePadding();
-            ImGuiPureWrap::text(m_desc.at("noise_seed"));
-            ImGui::SameLine();
-            ImGui::PushItemWidth(window_width * 0.5f);
-            int seed = m_auto_colorize_params.noise_seed;
-            if (ImGui::SliderInt("##noise_seed", &seed, 1, 10000)) {
-                m_auto_colorize_params.noise_seed = seed;
-            }
-            break;
+        ImGui::AlignTextToFramePadding();
+        ImGuiPureWrap::text(m_desc.at("projection"));
+        ImGui::SameLine(label_width);
+        ImGui::PushItemWidth(widget_width);
+        const std::string planar   = m_desc.at("projection_planar");
+        const std::string cylinder = m_desc.at("projection_cylinder");
+        const std::string sphere   = m_desc.at("projection_sphere");
+        const char *projection_items[] = {planar.c_str(), cylinder.c_str(), sphere.c_str()};
+        int projection = int(params.projection);
+        if (ImGui::Combo("##acl_projection", &projection, projection_items, IM_ARRAYSIZE(projection_items))) {
+            params.projection = static_cast<MMUAutoColorizationProjection>(projection);
+            m_auto_colorization_dirty = true;
         }
 
-        case MMUAutoColorizationPattern::OptimizedChanges:
-            // No specific parameters for optimized changes
-            ImGuiPureWrap::text(_u8L("Optimizes color changes to minimize tool changes."));
-            break;
+        if (params.projection == MMUAutoColorizationProjection::Planar) {
+            slider(m_desc.at("image_scale"), "##acl_image_scale", &params.image_scale, 0.1f, 5.f, "%.2f");
+            slider(m_desc.at("image_rotation"), "##acl_image_rotation", &params.image_rotation_deg, 0.f, 360.f, "%.0f");
+        }
 
-        default:
-            break;
+        bool invert = params.image_invert;
+        if (ImGuiPureWrap::checkbox(m_desc.at("image_invert") + "##acl_image_invert", invert)) {
+            params.image_invert = invert;
+            m_auto_colorization_dirty = true;
+        }
+        break;
+    }
+
+    case MMUAutoColorizationPattern::OptimizedChanges:
+        ImGuiPureWrap::text(_u8L("Keeps every color in one contiguous band to minimize tool changes."));
+        slider(m_desc.at("min_band_height"), "##acl_min_band", &params.min_band_height, 0.f, 20.f, "%.1f");
+        break;
+
+    default:
+        break;
+    }
+}
+
+void GLGizmoMmuSegmentation::render_auto_colorization_presets(float window_width)
+{
+    const std::vector<std::string> presets = auto_colorization_preset_names();
+
+    char name_buffer[64];
+    std::strncpy(name_buffer, m_auto_colorization_preset_name.c_str(), sizeof(name_buffer) - 1);
+    name_buffer[sizeof(name_buffer) - 1] = '\0';
+
+    ImGui::PushItemWidth(window_width * 0.45f);
+    if (ImGui::InputText("##acl_preset_name", name_buffer, sizeof(name_buffer)))
+        m_auto_colorization_preset_name = name_buffer;
+
+    ImGui::SameLine();
+    if (ImGuiPureWrap::button(m_desc.at("preset_save")) && !m_auto_colorization_preset_name.empty())
+        save_auto_colorization_preset(m_auto_colorization_preset_name);
+
+    if (presets.empty())
+        return;
+
+    std::vector<const char *> preset_items;
+    preset_items.reserve(presets.size());
+    for (const std::string &preset : presets)
+        preset_items.push_back(preset.c_str());
+
+    // The selection follows the stored name, so it survives a preset being deleted.
+    int selected_preset = 0;
+    if (const auto it = std::find(presets.begin(), presets.end(), m_auto_colorization_preset_name); it != presets.end())
+        selected_preset = int(it - presets.begin());
+
+    ImGui::PushItemWidth(window_width * 0.45f);
+    if (ImGui::Combo("##acl_presets", &selected_preset, preset_items.data(), int(preset_items.size())))
+        m_auto_colorization_preset_name = presets[selected_preset];
+
+    ImGui::SameLine();
+    if (ImGuiPureWrap::button(m_desc.at("preset_load"))) {
+        m_auto_colorization_preset_name = presets[selected_preset];
+        load_auto_colorization_preset(m_auto_colorization_preset_name);
+    }
+
+    ImGui::SameLine();
+    if (ImGuiPureWrap::button(m_desc.at("preset_delete")))
+        delete_auto_colorization_preset(presets[selected_preset]);
+}
+
+// Render the auto-colorization UI section
+void GLGizmoMmuSegmentation::render_auto_colorization_ui(float window_width)
+{
+    const float label_width  = window_width * 0.45f;
+    const float widget_width = window_width * 0.45f;
+
+    // Pattern type selection
+    ImGui::AlignTextToFramePadding();
+    ImGuiPureWrap::text(m_desc.at("pattern_type"));
+    ImGui::SameLine(label_width);
+    ImGui::PushItemWidth(widget_width);
+
+    const std::vector<std::string> pattern_labels = auto_colorization_pattern_labels();
+    std::vector<const char *>      pattern_items;
+    pattern_items.reserve(pattern_labels.size());
+    for (const std::string &label : pattern_labels)
+        pattern_items.push_back(label.c_str());
+
+    int current_pattern = int(m_auto_colorization_params.pattern_type);
+    if (ImGui::Combo("##acl_pattern", &current_pattern, pattern_items.data(), int(pattern_items.size()))) {
+        m_auto_colorization_params.pattern_type = static_cast<MMUAutoColorizationPattern>(current_pattern);
+        m_auto_colorization_dirty = true;
     }
 
     ImGui::Separator();
 
+    render_auto_colorization_extruders(window_width);
+
+    ImGui::Separator();
+
+    render_auto_colorization_pattern_params(window_width);
+
+    // Direction and blending apply to every pattern.
+    bool reverse = m_auto_colorization_params.reverse;
+    if (ImGuiPureWrap::checkbox(m_desc.at("reverse") + "##acl_reverse", reverse)) {
+        m_auto_colorization_params.reverse = reverse;
+        m_auto_colorization_dirty = true;
+    }
+
+    ImGui::AlignTextToFramePadding();
+    ImGuiPureWrap::text(m_desc.at("dither"));
+    ImGui::SameLine(label_width);
+    ImGui::PushItemWidth(widget_width);
+    if (m_imgui->slider_float("##acl_dither", &m_auto_colorization_params.dither_width, 0.f, 1.f, "%.2f"))
+        m_auto_colorization_dirty = true;
+
+    ImGui::Separator();
+
+    render_auto_colorization_presets(window_width);
+
+    ImGui::Separator();
+
+    bool live_preview = m_auto_colorization_live_preview;
+    if (ImGuiPureWrap::checkbox(m_desc.at("live_preview") + "##acl_live", live_preview)) {
+        m_auto_colorization_live_preview = live_preview;
+        m_auto_colorization_dirty = live_preview;
+    }
+
     // Preview and Apply buttons
-    if (ImGui::Button(m_desc.at("preview").c_str(), ImVec2(window_width * 0.48f, 0))) {
+    if (ImGuiPureWrap::button(m_desc.at("preview"), window_width * 0.45f, 0.f)) {
+        m_auto_colorization_dirty = false;
         preview_auto_colorization();
     }
 
     ImGui::SameLine();
 
-    if (ImGui::Button(m_desc.at("apply").c_str(), ImVec2(window_width * 0.48f, 0))) {
+    if (ImGuiPureWrap::button(m_desc.at("apply"), window_width * 0.45f, 0.f)) {
+        m_auto_colorization_dirty = false;
         apply_auto_colorization();
     }
-}
 
+    // Recompute once the control the user is dragging settles, so that live preview stays
+    // responsive on large meshes instead of re-colorizing on every frame of a slider drag.
+    if (m_auto_colorization_live_preview && m_auto_colorization_dirty && !ImGui::IsAnyItemActive()) {
+        m_auto_colorization_dirty = false;
+        preview_auto_colorization();
+    }
+}
 } // namespace Slic3r
