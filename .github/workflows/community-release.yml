@@ -467,7 +467,9 @@ jobs:
           )
 
           if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            is_draft=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$TAG" --jq .draft)
+            # The releases/tags API endpoint does not return draft releases, so
+            # asking it about the draft we are about to refresh fails the step.
+            is_draft=$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft)
             if [[ "$is_draft" != "true" ]]; then
               echo "Refusing to replace assets on an already-published release" >&2
               exit 1
